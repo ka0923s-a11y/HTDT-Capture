@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// #281: the sample catalog under `samples/equipment-catalog/` is the
+/// legacy bolph71656-ai/HTDT-Capture#281: the sample catalog under `samples/equipment-catalog/` is the
 /// in-repo document the import path is exercised with end-to-end —
 /// inbound routing, state gating, snapshot validation, and the
 /// library store/activate/list cycle all run against the same fixture
@@ -53,7 +53,7 @@ func sampleCatalogRoutesAsEquipmentCatalogBySchemaSniff() throws {
 @Test
 func sampleCatalogIsStorableDuringActiveCaptureAndIdle() throws {
     // Missions and catalogs may always be stored — adoption when a
-    // capture is active stays an explicit operator action (#393), so
+    // capture is active stays an explicit operator action (legacy bolph71656-ai/HTDT-Capture#393), so
     // no state yields plain `.allowed`.
     for state in CaptureState.allCases {
         let availability = InboundDocumentRouter.availability(

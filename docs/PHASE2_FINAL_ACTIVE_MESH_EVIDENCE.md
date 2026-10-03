@@ -1,7 +1,7 @@
 # Phase 2 Final Active Mesh Evidence Slice
 
 Status: implemented in software; physical-device verification remains open  
-Issue: #3
+Issue: legacy bolph71656-ai/HTDT-Capture#3
 
 ## Purpose
 
@@ -80,11 +80,11 @@ This slice does not establish that a physical LiDAR iPhone actually returns the
 expected active mesh set during or after RoomPlan. It also does not establish
 RoomPlan-to-mesh alignment accuracy.
 
-The remaining Issue #3 hardware gates include:
+The remaining Issue bolph71656-ai/HTDT-Capture#3 hardware gates include:
 
 - capture a real RoomPlan + ARMesh session;
 - preserve and reopen real `CapturedRoomData`;
 - regenerate a real postprocessed `CapturedRoom`;
 - persist this final active-anchor package from the live host working set;
 - verify the anchors and RoomPlan are in the declared same coordinate space;
-- execute the physical alignment/accuracy benchmark under Issue #9.
+- execute the physical alignment/accuracy benchmark under Issue bolph71656-ai/HTDT-Capture#9.

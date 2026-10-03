@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Localized presentation helpers for the annotation workspace (#220).
+/// Localized presentation helpers for the annotation workspace (legacy bolph71656-ai/HTDT-Capture#220).
 /// Canonical tokens never reach the operator: every schema enum and
 /// authority error maps to a task-level label in the current locale.
 enum AnnotationPresentation {
@@ -39,7 +39,7 @@ enum AnnotationPresentation {
         }
     }
 
-    /// The annotation templates the primary picker offers (#220). A
+    /// The annotation templates the primary picker offers (legacy bolph71656-ai/HTDT-Capture#220). A
     /// template is just a type + sensible label default; `.custom`
     /// stays the advanced escape hatch.
     static var entityTemplates: [AnnotationEntityType] {
@@ -126,7 +126,7 @@ enum AnnotationPresentation {
         }
     }
 
-    /// Localized name for a typed listening-position role (#243).
+    /// Localized name for a typed listening-position role (legacy bolph71656-ai/HTDT-Capture#243).
     static func listeningRoleName(
         _ role: ListeningPositionRole
     ) -> String {
@@ -142,7 +142,7 @@ enum AnnotationPresentation {
 
     // MARK: Measurements
 
-    /// Common measurement tasks offered as templates (#220); each maps
+    /// Common measurement tasks offered as templates (legacy bolph71656-ai/HTDT-Capture#220); each maps
     /// to the canonical quantity token written into the record.
     struct MeasurementTemplate:
         Identifiable, Equatable, Sendable
@@ -347,7 +347,7 @@ enum AnnotationPresentation {
 
     // MARK: Errors
 
-    /// Maps authority/model errors to task-level guidance (#220) —
+    /// Maps authority/model errors to task-level guidance (legacy bolph71656-ai/HTDT-Capture#220) —
     /// what the operator should fix — rather than surfacing Swift type
     /// names. Unknown errors keep a bounded description.
     static func errorText(_ error: Error) -> String {

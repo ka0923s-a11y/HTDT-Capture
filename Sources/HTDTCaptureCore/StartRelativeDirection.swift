@@ -1,13 +1,13 @@
 import Foundation
 
 /// Direction-reference convention shared by every coverage/guidance
-/// surface (#343).
+/// surface (legacy bolph71656-ai/HTDT-Capture#343).
 ///
 /// The scan's reference yaw is the operator's facing direction at the
 /// first normally-tracking frame — an arbitrary start heading, never
 /// an authoritative room "Front". All compass, coverage-map, and
 /// end-review direction labels are therefore expressed relative to
-/// the start direction. A confirmed room reference frame (#232) is
+/// the start direction. A confirmed room reference frame (legacy bolph71656-ai/HTDT-Capture#232) is
 /// the only permitted room-relative authority, and UI may present
 /// room-relative labels only where that exact reference relationship
 /// exists; persisted advisories record `convention` so a reader knows
@@ -19,7 +19,7 @@ public enum StartRelativeDirection {
 
     /// Eight-way semantic bucket of a start-relative bearing.
     /// `ahead` is the start direction itself; `behind` is 180° from
-    /// it — deliberately never "Front"/"Rear" (#343).
+    /// it — deliberately never "Front"/"Rear" (legacy bolph71656-ai/HTDT-Capture#343).
     public enum Octant: String, Sendable, Equatable, CaseIterable {
         case ahead
         case aheadRight = "ahead_right"

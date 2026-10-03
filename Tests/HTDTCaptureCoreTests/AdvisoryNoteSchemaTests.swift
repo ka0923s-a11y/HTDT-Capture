@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// #273: every `CaptureAdvisoryNoteKind` the app emits must validate
+/// legacy bolph71656-ai/HTDT-Capture#273: every `CaptureAdvisoryNoteKind` the app emits must validate
 /// against the published `advisory-notes` schema — the v1.0.0 `kind`
 /// enum previously lacked three already-emitted kinds
 /// (`privacy_flag_cleared`, `roomplan_rescan`,

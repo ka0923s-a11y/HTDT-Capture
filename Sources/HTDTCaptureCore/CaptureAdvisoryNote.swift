@@ -1,7 +1,7 @@
 import Foundation
 
 /// Advisory provenance notes for operator-driven and policy-driven
-/// scan events (#257, #273, #216, #274).
+/// scan events (legacy bolph71656-ai/HTDT-Capture#257, legacy bolph71656-ai/HTDT-Capture#273, legacy bolph71656-ai/HTDT-Capture#216, legacy bolph71656-ai/HTDT-Capture#274).
 ///
 /// Notes are operator/advisory context — they never assert geometry or
 /// canonical evidence authority. They persist into the working set and
@@ -22,28 +22,28 @@ public enum CaptureAdvisoryNoteKind:
     case frameUsability = "frame_usability"
     /// The optional end-of-scan return-to-start consistency check ran.
     case loopClosureCheck = "loop_closure_check"
-    /// An operator-targeted object orbit pass completed (#250).
+    /// An operator-targeted object orbit pass completed (legacy bolph71656-ai/HTDT-Capture#250).
     case targetScanPass = "target_scan_pass"
     /// An operator-seeded iterative-segmentation attempt ran inside an
-    /// object pass (#269): seed kind, mask outcome, bounded refinement
+    /// object pass (legacy bolph71656-ai/HTDT-Capture#269): seed kind, mask outcome, bounded refinement
     /// count and the display-mapping authority are recorded.
     case segmentationPass = "segmentation_pass"
-    /// An operator revisit flag was dropped mid-scan (#325).
+    /// An operator revisit flag was dropped mid-scan (legacy bolph71656-ai/HTDT-Capture#325).
     case revisitFlag = "revisit_flag"
     /// A revisit flag was resolved/skipped/unavailable in Review
-    /// (#325).
+    /// (legacy bolph71656-ai/HTDT-Capture#325).
     case revisitFlagResolution = "revisit_flag_resolution"
     /// A capture mission (generic task profile or imported HTDT task
-    /// plan) was bound to the session before scanning started (#352).
+    /// plan) was bound to the session before scanning started (legacy bolph71656-ai/HTDT-Capture#352).
     case missionBound = "mission_bound"
     /// The bound task profile changed after scanning started — an
-    /// explicit operator action with provenance, never silent (#352).
+    /// explicit operator action with provenance, never silent (legacy bolph71656-ai/HTDT-Capture#352).
     case taskProfileChange = "task_profile_change"
     /// The operator flagged an evidence frame as privacy-sensitive
-    /// (person visible, credentials on a plate, …) for Review (#376).
+    /// (person visible, credentials on a plate, …) for Review (legacy bolph71656-ai/HTDT-Capture#376).
     case privacyFlag = "privacy_flag"
     /// The operator cleared a frame's privacy flag — the paired
-    /// revocation of `privacy_flag`, mirroring declare/revoke (#460).
+    /// revocation of `privacy_flag`, mirroring declare/revoke (legacy bolph71656-ai/HTDT-Capture#460).
     case privacyFlagCleared = "privacy_flag_cleared"
     /// RoomPlan was re-run on the same revision (Continue scanning or
     /// an End-attempt retry). Each `run()` builds a fresh room model,
@@ -55,29 +55,29 @@ public enum CaptureAdvisoryNoteKind:
     /// End transaction — so the room model stopped accumulating while
     /// the operator still sees a scanning surface.
     case roomPlanSessionEnded = "roomplan_session_ended"
-    /// The bounded camera-source preflight ran (issue #277): records
+    /// The bounded camera-source preflight ran (issue bolph71656-ai/HTDT-Capture#277): records
     /// the stable-frame/smudge outcome and the operator's action.
     case sourceQualityPreflight = "source_quality_preflight"
     /// A bounded one-shot high-resolution evidence still was requested
-    /// (issue #275): records purpose, visual profile, and outcome.
+    /// (issue bolph71656-ai/HTDT-Capture#275): records purpose, visual profile, and outcome.
     case highResolutionStill = "high_resolution_still"
     /// The operator's per-mission reference-object selection was
-    /// resolved and applied to the ARSession (#268) — records selected
+    /// resolved and applied to the ARSession (legacy bolph71656-ai/HTDT-Capture#268) — records selected
     /// counts plus any dropped requests verbatim.
     case referenceObjectSelection = "reference_object_selection"
     /// The session reconfiguration for reference objects completed
     /// with a non-plain outcome: an artifact failed to load, the
     /// running configuration did not adopt the object sets, or the
-    /// platform refused (#268).
+    /// platform refused (legacy bolph71656-ai/HTDT-Capture#268).
     case referenceObjectConfigurationOutcome =
         "reference_object_configuration_outcome"
     /// The operator accepted a matched reference-object observation
     /// into an entity's evidence — the observation ref lands alongside
     /// existing evidence, never overwriting placement/orientation
-    /// (#268).
+    /// (legacy bolph71656-ai/HTDT-Capture#268).
     case referenceObjectAcceptance = "reference_object_acceptance"
     /// An explicit operator-requested optional workload was deferred or
-    /// rejected by the admission policy (#273) — the persisted
+    /// rejected by the admission policy (legacy bolph71656-ai/HTDT-Capture#273) — the persisted
     /// provenance for "the operator asked, the policy said no".
     case optionalWorkAdmission = "optional_work_admission"
 }

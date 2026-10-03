@@ -7,7 +7,7 @@ import simd
 import Vision
 
 /// Bounded camera-source preflight on the shared AR session (issue
-/// #277): selects ONE stable ordinary camera frame, runs Vision's
+/// legacy bolph71656-ai/HTDT-Capture#277): selects ONE stable ordinary camera frame, runs Vision's
 /// `DetectLensSmudgeRequest` off the AR callback path, and returns the
 /// honest outcome for the Core advisory assessment.
 ///
@@ -97,7 +97,7 @@ public enum CameraSourcePreflight {
         of pixelBuffer: CVPixelBuffer
     ) async -> Double? {
         // DetectLensSmudgeRequest is iOS 26+; below it the check is
-        // skipped honestly (nil = smudge unknown). The #267 baseline
+        // skipped honestly (nil = smudge unknown). The legacy bolph71656-ai/HTDT-Capture#267 baseline
         // rebases to iOS 27, where this guard is a no-op.
         guard #available(iOS 26.0, *) else {
             return nil

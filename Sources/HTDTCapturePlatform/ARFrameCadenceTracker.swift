@@ -1,6 +1,6 @@
 import Foundation
 
-/// Snapshot of AR frame-interval health for one capture (#273
+/// Snapshot of AR frame-interval health for one capture (legacy bolph71656-ai/HTDT-Capture#273
 /// instrumentation). The distribution lives in the tracker's bounded
 /// window; the summary carries the numbers a physical-benchmark run
 /// needs without holding per-frame data.
@@ -40,7 +40,7 @@ public struct ARFrameCadenceSummary: Equatable, Sendable {
     }
 }
 
-/// Bounded AR frame-cadence measurement (#273 "AR frame interval
+/// Bounded AR frame-cadence measurement (legacy bolph71656-ai/HTDT-Capture#273 "AR frame interval
 /// distribution"). Fed frame timestamps from the session lifecycle
 /// bridge's `didUpdate` passthrough; admits nothing — it exists so the
 /// physical benchmark can see whether optional work degrades the

@@ -1,8 +1,8 @@
-# lane-b — high-quality visual evidence (#275)
+# lane-b — high-quality visual evidence (legacy bolph71656-ai/HTDT-Capture#275)
 
 Protocol revision: **v2** (fixtures/metrics/decision sections filled; v1 was the initial scaffold)
 
-Bounded **one-shot** high-resolution evidence stills as supplemental capture evidence (#275, PR #284). A still lands under `evidence/` as a declared payload with an advisory note — it supplements the live frame stream, never replaces it, and the high-res request is strictly bounded (one shot at a time, cooldown, busy/failure honesty). All camera-pipeline numbers in this lane are **device-gated**: they need iPhone-class hardware (target: iPhone 17 Pro). Software-side behavior (bound enforcement, persistence, advisory provenance, failure classification) is verified by `swift test` on macOS.
+Bounded **one-shot** high-resolution evidence stills as supplemental capture evidence (legacy bolph71656-ai/HTDT-Capture#275, PR bolph71656-ai/HTDT-Capture#284). A still lands under `evidence/` as a declared payload with an advisory note — it supplements the live frame stream, never replaces it, and the high-res request is strictly bounded (one shot at a time, cooldown, busy/failure honesty). All camera-pipeline numbers in this lane are **device-gated**: they need iPhone-class hardware (target: iPhone 17 Pro). Software-side behavior (bound enforcement, persistence, advisory provenance, failure classification) is verified by `swift test` on macOS.
 
 Compare only plausible profiles on the same tasks: default video format (baseline); one-shot high-res still (implemented); high-res-recommended format; 4K candidate; HDR off/on; default photo settings; manual tuning only if a concrete evidence failure motivates it. Never pick a profile just for larger RGB dimensions.
 

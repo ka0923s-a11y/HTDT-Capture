@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #277: the bounded camera-source preflight must be advisory
+/// Issue bolph71656-ai/HTDT-Capture#277: the bounded camera-source preflight must be advisory
 /// only — never surface an advisory without a stable frame, never
 /// invent a smudge reading, and gate Stage-B low-light on the
 /// evaluation-enabled policy flag.

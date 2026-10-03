@@ -236,10 +236,10 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     public var usableDepthSampleCount: Int?
     /// Number of coordinate-space discontinuities declared for this
     /// capture. A declared discontinuity breaks spatial-authority
-    /// continuity and is never recoverable under any ruleset (#242).
+    /// continuity and is never recoverable under any ruleset (legacy bolph71656-ai/HTDT-Capture#242).
     public var coordinateDiscontinuityCount: Int
     /// Bounded Scene Depth sufficiency summary accumulated at frame
-    /// commit time (#284); nil when depth payloads were never analyzed
+    /// commit time (legacy bolph71656-ai/HTDT-Capture#284); nil when depth payloads were never analyzed
     /// (the depth-fallback gate then fails closed under policies that
     /// require it).
     public var depthSufficiency: DepthEvidenceSufficiency?
@@ -249,7 +249,7 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     public var integrityStatus: BundleIntegrityStatus
     public var benchmarkRefs: [String]
     /// Advisory findings produced by operator-facing provenance notes
-    /// (#216/#257/#273/#274). They are appended to the report's
+    /// (legacy bolph71656-ai/HTDT-Capture#216/legacy bolph71656-ai/HTDT-Capture#257/legacy bolph71656-ai/HTDT-Capture#273/legacy bolph71656-ai/HTDT-Capture#274). They are appended to the report's
     /// diagnostics verbatim at info/warning severity and never carry
     /// gate authority on their own.
     public var advisoryFindings: [QualityDiagnostic]
@@ -296,7 +296,7 @@ public struct CaptureQualityObservation: Sendable, Equatable {
 }
 
 /// Versioned recovery policy for historical tracking-unavailable
-/// intervals (#242). Nil preserves the legacy binary semantics where
+/// intervals (legacy bolph71656-ai/HTDT-Capture#242). Nil preserves the legacy binary semantics where
 /// any retained unavailable event is a blocking error. A declared
 /// coordinate discontinuity is never recoverable under any policy.
 public struct TrackingRecoveryPolicy: Sendable, Equatable {
@@ -330,11 +330,11 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
     public let requiredMeasurementQuantityTypes: Set<String>
     public let requireIntegrityPass: Bool
     /// Versioned tracking-recovery policy; nil keeps the 1.1.0 binary
-    /// "ever unavailable" semantics (#242).
+    /// "ever unavailable" semantics (legacy bolph71656-ai/HTDT-Capture#242).
     public let trackingRecoveryPolicy: TrackingRecoveryPolicy?
     /// Versioned Scene Depth sufficiency gate evaluated when the mesh
     /// fallback fires; nil keeps the 1.1.0 "any usable sample"
-    /// semantics (#284).
+    /// semantics (legacy bolph71656-ai/HTDT-Capture#284).
     public let depthFallbackSufficiencyPolicy:
         DepthFallbackSufficiencyPolicy?
 
@@ -383,9 +383,9 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
                 depthFallbackSufficiencyPolicy: nil
             ),
             // 1.2.0 supersedes 1.1.0 in the same gates but adds the
-            // versioned tracking-recovery policy (#242) and the
+            // versioned tracking-recovery policy (legacy bolph71656-ai/HTDT-Capture#242) and the
             // bounded Scene Depth sufficiency gate for the mesh
-            // fallback (#284). Every other parameter is unchanged.
+            // fallback (legacy bolph71656-ai/HTDT-Capture#284). Every other parameter is unchanged.
             "1.2.0": CaptureQualityRequirements(
                 pinnedRulesetVersion: "1.2.0",
                 requireCompletedRoomPlan: true,
@@ -603,7 +603,7 @@ public enum CaptureQualityEvaluator {
                 if let sufficiencyPolicy =
                     requirements.depthFallbackSufficiencyPolicy
                 {
-                    // Versioned sufficiency gate (#284): a single
+                    // Versioned sufficiency gate (legacy bolph71656-ai/HTDT-Capture#284): a single
                     // low-confidence sample can no longer satisfy the
                     // fallback. A missing summary means depth evidence
                     // predates accumulation — fail closed.
@@ -705,7 +705,7 @@ public enum CaptureQualityEvaluator {
         }
 
         // A declared coordinate-space reset is unrecoverable under
-        // every ruleset (#242) — it must be reported even when the
+        // every ruleset (legacy bolph71656-ai/HTDT-Capture#242) — it must be reported even when the
         // ruleset carries no TrackingRecoveryPolicy.
         if observation.coordinateDiscontinuityCount > 0 {
             diagnostics.append(
@@ -850,7 +850,7 @@ public enum CaptureQualityEvaluator {
         )
     }
 
-    /// Versioned tracking-recovery evaluation (#242). Unavailable
+    /// Versioned tracking-recovery evaluation (legacy bolph71656-ai/HTDT-Capture#242). Unavailable
     /// events arrive as first/last samples of each compacted interval,
     /// so consecutive unavailable events merge into spans. A span is a
     /// blocking error when tracking never returned to normal, when its

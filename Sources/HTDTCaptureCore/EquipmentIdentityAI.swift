@@ -3,11 +3,11 @@ import Foundation
 import FoundationModels
 #endif
 
-// MARK: - Bounded fact codes (#270)
+// MARK: - Bounded fact codes (legacy bolph71656-ai/HTDT-Capture#270)
 
 /// Closed set of evidence-channel tokens a generated identity
 /// suggestion may cite. The validator rejects codes outside this set so
-/// a model can never invent an evidence channel (issue #270).
+/// a model can never invent an evidence channel (issue bolph71656-ai/HTDT-Capture#270).
 public enum EquipmentIdentityBasisCode:
     String,
     Codable,
@@ -43,7 +43,7 @@ public enum EquipmentIdentityCategory:
     case other
 }
 
-// MARK: - Structured suggestion (#270, advisory only)
+// MARK: - Structured suggestion (legacy bolph71656-ai/HTDT-Capture#270, advisory only)
 
 /// The model's structured answer for one label scan. Advisory only:
 /// nothing in a suggestion is ever written back over a raw OCR/barcode
@@ -105,7 +105,7 @@ public struct EquipmentIdentitySuggestion: Sendable, Equatable {
     }
 }
 
-// MARK: - Bounded context (#270)
+// MARK: - Bounded context (legacy bolph71656-ai/HTDT-Capture#270)
 
 /// Length/quantity caps applied while building the model's context.
 /// The 4096-token window also carries instructions, schema, and output,
@@ -113,7 +113,7 @@ public struct EquipmentIdentitySuggestion: Sendable, Equatable {
 /// roughly one token per character, which is why every field is
 /// length-capped.
 public struct EquipmentIdentityAIBudget: Sendable, Equatable {
-    /// Apple's documented on-device session window (#270). `contextSize`
+    /// Apple's documented on-device session window (legacy bolph71656-ai/HTDT-Capture#270). `contextSize`
     /// on the model is only readable on iOS 27+ runtimes from
     /// dual-SDK-safe code paths, so the budget is planned against this
     /// floor regardless.
@@ -172,7 +172,7 @@ public struct EquipmentIdentityAIBudget: Sendable, Equatable {
 
 /// A catalog entry reduced to the fields a suggestion may reference —
 /// the model never sees the whole catalog, only this bounded slice
-/// (#270: deterministic retrieval first, no free-form RAG).
+/// (legacy bolph71656-ai/HTDT-Capture#270: deterministic retrieval first, no free-form RAG).
 public struct EquipmentIdentityAICatalogEntry:
     Sendable,
     Equatable,
@@ -293,7 +293,7 @@ public struct EquipmentIdentityAIContext: Sendable, Equatable {
     }
 }
 
-// MARK: - Prompt composition (#270)
+// MARK: - Prompt composition (legacy bolph71656-ai/HTDT-Capture#270)
 
 /// Deterministic, versioned prompt/instruction text for the bounded
 /// identity task. Instructions stay in compact English: output fields
@@ -384,7 +384,7 @@ public enum EquipmentIdentityAIPrompt {
     }
 }
 
-// MARK: - Deterministic validator (#270)
+// MARK: - Deterministic validator (legacy bolph71656-ai/HTDT-Capture#270)
 
 /// A single grounding violation found in a generated suggestion.
 public enum EquipmentIdentityAIViolation:
@@ -416,7 +416,7 @@ public enum EquipmentIdentityAIViolation:
 }
 
 /// The deterministic gate between model output and advisory display
-/// (#270): every claim must trace to the bounded context — a raw
+/// (legacy bolph71656-ai/HTDT-Capture#270): every claim must trace to the bounded context — a raw
 /// observation, a deterministic candidate, or the catalog slice —
 /// else the suggestion is rejected wholesale. Rejection is a normal
 /// outcome, not an error.
@@ -533,7 +533,7 @@ public enum EquipmentIdentityAIValidator {
     }
 }
 
-// MARK: - Result / provenance (#270)
+// MARK: - Result / provenance (legacy bolph71656-ai/HTDT-Capture#270)
 
 public enum EquipmentIdentityAIStatus:
     String,
@@ -559,7 +559,7 @@ public enum EquipmentIdentityAIStatus:
     case generationFailed = "generation_failed"
 }
 
-/// What the API actually exposed for one suggestion attempt (#270
+/// What the API actually exposed for one suggestion attempt (legacy bolph71656-ai/HTDT-Capture#270
 /// provenance): availability, OS, locale, context size, prompt revision,
 /// catalog revision, matcher version. `modelVariant` stays nil on
 /// builds where the SDK does not expose `SystemLanguageModel.variant`
@@ -676,7 +676,7 @@ private struct FMEquipmentIdentitySuggestion {
     var needsOperatorConfirmation: Bool
 }
 
-/// One bounded, task-scoped suggestion pass per call (issue #270):
+/// One bounded, task-scoped suggestion pass per call (issue bolph71656-ai/HTDT-Capture#270):
 /// a fresh `LanguageModelSession`, a deterministically built bounded
 /// context, structured generation, then deterministic validation.
 /// There is no long-lived transcript, no Dynamic Profile, and no

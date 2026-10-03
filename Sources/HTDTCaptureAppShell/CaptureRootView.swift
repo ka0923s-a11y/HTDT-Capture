@@ -9,44 +9,44 @@ import UIKit
 
 public struct CaptureRootActions {
     public let beginCapture: () -> Void
-    /// #212: operator confirmed the pre-capture setup screen; leaves
+    /// legacy bolph71656-ai/HTDT-Capture#212: operator confirmed the pre-capture setup screen; leaves
     /// `.setup` and starts the real capability→RoomPlan pipeline.
     public let beginScanning: () -> Void
-    /// #212: operator cancelled setup; back to Idle, no capture made.
+    /// legacy bolph71656-ai/HTDT-Capture#212: operator cancelled setup; back to Idle, no capture made.
     public let cancelCaptureSetup: () -> Void
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
-    /// #275: bounded one-shot high-resolution evidence still,
+    /// legacy bolph71656-ai/HTDT-Capture#275: bounded one-shot high-resolution evidence still,
     /// deliberately requested with a stated purpose.
     public let captureHighResolutionEvidence:
         (HighQualityEvidencePurpose) -> Void
-    /// #250 targeted-object pass actions.
+    /// legacy bolph71656-ai/HTDT-Capture#250 targeted-object pass actions.
     public let beginTargetScan: () -> Void
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
-    /// #269: operator seed/refine gesture over the preview — points are
+    /// legacy bolph71656-ai/HTDT-Capture#269: operator seed/refine gesture over the preview — points are
     /// view-normalized; the coordinator maps them through the recorded
     /// display-transform authority.
     public let segmentationGesture:
         (SegmentationGesture) -> Void
-    /// #269: fuse + persist the accepted mask ("Use").
+    /// legacy bolph71656-ai/HTDT-Capture#269: fuse + persist the accepted mask ("Use").
     public let useSegmentation: () -> Void
-    /// #269: drop the live run ("Cancel" / "New selection").
+    /// legacy bolph71656-ai/HTDT-Capture#269: drop the live run ("Cancel" / "New selection").
     public let cancelSegmentation: () -> Void
-    /// #269: explicit operator asset-prep request — the only mid-scan
+    /// legacy bolph71656-ai/HTDT-Capture#269: explicit operator asset-prep request — the only mid-scan
     /// path allowed to reach `downloadAssets()`.
     public let segmentationAssetPrepare: () -> Void
-    /// #257 declared-region actions.
+    /// legacy bolph71656-ai/HTDT-Capture#257 declared-region actions.
     public let declareNearestUnresolvedRegion:
         (DeclaredRegionReason) -> Void
     public let revokeOperatorRegion:
         (SpatialCoverageCellKey) -> Void
-    /// #252 non-visual cue switch.
+    /// legacy bolph71656-ai/HTDT-Capture#252 non-visual cue switch.
     public let setGuidanceCuesEnabled: (Bool) -> Void
-    /// #273 return-to-start check arm/disarm.
+    /// legacy bolph71656-ai/HTDT-Capture#273 return-to-start check arm/disarm.
     public let setLoopClosureCheckActive: (Bool) -> Void
-    /// Operator response to the armed loop-closure check (#273).
+    /// Operator response to the armed loop-closure check (legacy bolph71656-ai/HTDT-Capture#273).
     public let recordLoopClosureOutcome: (String) -> Void
     public let setScanMovementCapability:
         (ScanMovementCapability) -> Void
@@ -55,37 +55,37 @@ public struct CaptureRootActions {
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Full-3D orientation capture for measurement-point direction
-    /// authority (issue #271); distinct from the horizontal-heading
+    /// authority (issue bolph71656-ai/HTDT-Capture#271); distinct from the horizontal-heading
     /// `captureSpeakerOrientation` convention.
     public let capturePointOrientation:
         () async throws -> AnnotationOrientationAuthority
-    /// Pollable reticle probe for the camera capture sheet (#214): a
+    /// Pollable reticle probe for the camera capture sheet (legacy bolph71656-ai/HTDT-Capture#214): a
     /// live classification of what the center ray is hitting.
     public let probePlacementTarget:
         () async -> AnnotationPlacementProbe
     /// Pollable camera yaw in degrees for the live heading arrow
-    /// (#214).
+    /// (legacy bolph71656-ai/HTDT-Capture#214).
     public let probeCameraHeading: () async -> Float?
-    /// Targeted placement capture (#246): mesh / RoomPlan object /
+    /// Targeted placement capture (legacy bolph71656-ai/HTDT-Capture#246): mesh / RoomPlan object /
     /// plane, never silently downgraded; nil means no hit.
     public let captureTargetedPlacement: (
         PlacementTargetPreference
     ) async throws -> AnnotationPlacementAuthority?
     /// Captures a plain evidence frame for equipment-identity photos
-    /// (#239); returns its canonical `path:` ref.
+    /// (legacy bolph71656-ai/HTDT-Capture#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
-    /// Label-scan assist (#345): captures a close-up label frame, runs
+    /// Label-scan assist (legacy bolph71656-ai/HTDT-Capture#345): captures a close-up label frame, runs
     /// Vision OCR/barcode recognition, and returns suggestion
     /// candidates for explicit operator confirmation — it never
     /// commits anything.
     public let scanEquipmentLabel: () async throws
         -> EquipmentLabelScanResult
     /// Captures a dedicated close-up photo for field evidence
-    /// (#314): image bytes + dims, no frame descriptor persisted.
+    /// (legacy bolph71656-ai/HTDT-Capture#314): image bytes + dims, no frame descriptor persisted.
     public let captureFieldEvidencePhoto:
         () async throws -> CapturedFieldPhoto
-    /// Persists the staged field-authority workspace on Save (#300/
-    /// #301/#310/#314/#324/#331).
+    /// Persists the staged field-authority workspace on Save (legacy bolph71656-ai/HTDT-Capture#300/
+    /// legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331).
     public let commitFieldAuthority:
         (FieldAuthorityWorkspace) -> Void
     public let commitAnnotationAuthority: (
@@ -95,25 +95,25 @@ public struct CaptureRootActions {
         TheaterAuthorityCollection
     ) -> Void
     public let cancelAnnotation: () -> Void
-    /// Operator capture-task profile selection (#217/#259/#352):
+    /// Operator capture-task profile selection (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259/legacy bolph71656-ai/HTDT-Capture#352):
     /// on the setup screen it sets pending mission intent bound at
     /// Begin; once a working set exists it is an explicit recorded
     /// mission change. Carries optional skipped-requirement outcome.
     public let selectTaskProfile:
         (CaptureTaskProfile?, Set<String>) -> Void
-    /// #352: imports an HTDT task plan file from the setup screen,
+    /// legacy bolph71656-ai/HTDT-Capture#352: imports an HTDT task plan file from the setup screen,
     /// before acquisition starts.
     public let importTaskPlan: (URL) -> Void
-    /// #352: removes the pending imported plan during setup.
+    /// legacy bolph71656-ai/HTDT-Capture#352: removes the pending imported plan during setup.
     public let clearTaskPlan: () -> Void
-    /// #325: one-tap revisit flag while scanning; returns the new
+    /// legacy bolph71656-ai/HTDT-Capture#325: one-tap revisit flag while scanning; returns the new
     /// flag id when persisted (the view may then offer the optional
     /// category/note sheet), nil when the flag could not be recorded.
     public let flagForReview: () -> String?
-    /// #325: saves the optional flag category/note sheet.
+    /// legacy bolph71656-ai/HTDT-Capture#325: saves the optional flag category/note sheet.
     public let updateRevisitFlagDetails:
         (String, ScanRevisitFlagCategory?, String?) -> Void
-    /// #325: Review-side flag resolution — links authority,
+    /// legacy bolph71656-ai/HTDT-Capture#325: Review-side flag resolution — links authority,
     /// acknowledges, or marks unavailable.
     public let resolveRevisitFlag:
         (
@@ -121,34 +121,34 @@ public struct CaptureRootActions {
             ScanRevisitFlagResolution.Outcome,
             String?
         ) -> Void
-    /// #325: reopens a resolved/skipped/unavailable flag.
+    /// legacy bolph71656-ai/HTDT-Capture#325: reopens a resolved/skipped/unavailable flag.
     public let reopenRevisitFlag: (String) -> Void
-    /// #277: re-runs the bounded source-quality preflight once.
+    /// legacy bolph71656-ai/HTDT-Capture#277: re-runs the bounded source-quality preflight once.
     public let recheckSourceQuality: () -> Void
-    /// #277: dismisses the source-quality advisory card.
+    /// legacy bolph71656-ai/HTDT-Capture#277: dismisses the source-quality advisory card.
     public let dismissSourceQualityAdvisory: () -> Void
-    /// #272: on-demand scan copilot advisory request. Advisory
+    /// legacy bolph71656-ai/HTDT-Capture#272: on-demand scan copilot advisory request. Advisory
     /// only — can never start, stop, or finish the capture.
     public let requestScanCopilotSuggestion: () -> Void
-    /// #352: marks a bound task-plan checklist item in Review.
-    /// #364 §10: the optional third argument is the collected
-    /// reason, persisted as a mission-level waiver note (#397) when
+    /// legacy bolph71656-ai/HTDT-Capture#352: marks a bound task-plan checklist item in Review.
+    /// legacy bolph71656-ai/HTDT-Capture#364 §10: the optional third argument is the collected
+    /// reason, persisted as a mission-level waiver note (legacy bolph71656-ai/HTDT-Capture#397) when
     /// the marked plan maps to a mission record.
     public let markTaskPlanItem:
         (String, TaskPlanItemOutcome, String?) -> Void
     /// Whether a mission-inbox record exists for the given plan —
     /// the waiver note is the only audited reason channel, so the
-    /// checklist's "with reason" items are gated on this (#364 §10).
+    /// checklist's "with reason" items are gated on this (legacy bolph71656-ai/HTDT-Capture#364 §10).
     public let canRecordTaskPlanMarkReason:
         (HTDTCaptureTaskPlan) -> Bool
     /// Validates and adopts an imported HTDT equipment-catalog snapshot
-    /// (#211). The host owns the catalog context for the app session and
+    /// (legacy bolph71656-ai/HTDT-Capture#211). The host owns the catalog context for the app session and
     /// mirrors it to a durable app-support cache; the default simply
     /// decodes through the validating initializer without persisting.
     public let importEquipmentCatalog:
         (Data) throws -> HTDTEquipmentCatalogSnapshot
     /// Explicitly activates a catalog already stored in the host's
-    /// multi-catalog library (#302); argument is the content key shown
+    /// multi-catalog library (legacy bolph71656-ai/HTDT-Capture#302); argument is the content key shown
     /// in `equipmentCatalogLibrary`.
     public let selectEquipmentCatalog: (String) -> Void
     public let finalizeCapture: () -> Void
@@ -173,63 +173,63 @@ public struct CaptureRootActions {
     public let reviseAdoptedCapture: () -> Void
     public let importCaptureArchive: (URL) -> Void
     /// Explicit operator Cancel/Discard of the in-progress capture
-    /// (#254): confirms in UI, tears down the live working set, and
+    /// (legacy bolph71656-ai/HTDT-Capture#254): confirms in UI, tears down the live working set, and
     /// never touches finalized copies.
     public let discardActiveCapture: () -> Void
-    /// #437 "Reopen the draft and finish" on the failed surface:
+    /// legacy bolph71656-ai/HTDT-Capture#437 "Reopen the draft and finish" on the failed surface:
     /// preserves the failed end-accepted working set as a recoverable
     /// draft and reopens it into sealed Review.
     public let resumeFailedAsDraft: () -> Void
-    /// #437 "Keep the draft for later" on the failed surface:
+    /// legacy bolph71656-ai/HTDT-Capture#437 "Keep the draft for later" on the failed surface:
     /// preserves the working set as a recoverable draft without
     /// reopening it.
     public let keepFailedAsDraft: () -> Void
-    /// #437 "Discard and start a new capture" on the failed surface:
+    /// legacy bolph71656-ai/HTDT-Capture#437 "Discard and start a new capture" on the failed surface:
     /// permanently removes the failed capture's retained data, then
     /// opens capture setup.
     public let discardFailedAndStartNew: () -> Void
-    /// Rebuilds the review-workspace model (#213) before the
+    /// Rebuilds the review-workspace model (legacy bolph71656-ai/HTDT-Capture#213) before the
     /// workspace is pushed.
     public let refreshReviewWorkspace: () -> Void
-    /// Two-point room-reference-frame capture (#232).
+    /// Two-point room-reference-frame capture (legacy bolph71656-ai/HTDT-Capture#232).
     public let captureRoomFrameOrigin: () -> Void
     public let confirmRoomReferenceFrame: () -> Void
-    /// Field/install datum capture (#232): derives the datum from
+    /// Field/install datum capture (legacy bolph71656-ai/HTDT-Capture#232): derives the datum from
     /// the committed room reference frame, or removes the committed
     /// datum payload.
     public let confirmFieldDatumFromRoomFrame: () async -> Bool
     public let removeRoomFieldDatum: () async -> Void
-    /// #232: commits a field datum declared from bounded
+    /// legacy bolph71656-ai/HTDT-Capture#232: commits a field datum declared from bounded
     /// evidence operands (entity/measurement/frame/stated).
     public let commitFieldDatum:
         (RoomFieldDatumAuthoringRequest) async -> Bool
     /// Captures the camera position for a user-declared opening
-    /// candidate's center (#231).
+    /// candidate's center (legacy bolph71656-ai/HTDT-Capture#231).
     public let captureOpeningCenter: () -> Void
-    /// Clears a pending opening-center capture (#231).
+    /// Clears a pending opening-center capture (legacy bolph71656-ai/HTDT-Capture#231).
     public let clearOpeningCenter: () -> Void
-    /// Enumerates opening candidates for the review step (#231).
+    /// Enumerates opening candidates for the review step (legacy bolph71656-ai/HTDT-Capture#231).
     public let openingReviewCandidates:
         () async -> [RoomOpeningCandidate]?
     public let commitOpeningReview:
         ([RoomOpeningCandidate]) async -> Bool
     /// Privacy review: permanently removes an unreferenced evidence
-    /// frame from the working capture (#241).
+    /// frame from the working capture (legacy bolph71656-ai/HTDT-Capture#241).
     public let removeEvidenceFrameForPrivacy:
         (EvidenceFrameID) async -> Void
-    /// Loads a persisted capture into the read-only viewer (#294) —
+    /// Loads a persisted capture into the read-only viewer (legacy bolph71656-ai/HTDT-Capture#294) —
     /// `true` only when the load actually started.
     public let loadPersistedWorkspace:
         (PersistedCaptureRecord) -> Bool
     /// Field-level parent/child comparison for a revised capture
-    /// (#221).
+    /// (legacy bolph71656-ai/HTDT-Capture#221).
     public let compareAdoptedRevisionWithParent:
         () async -> CaptureRevisionComparison?
-    /// Failed-capture inspection + diagnostic package (#224).
+    /// Failed-capture inspection + diagnostic package (legacy bolph71656-ai/HTDT-Capture#224).
     public let inspectFailedCapture: () -> Void
     public let exportFailedCaptureDiagnostics:
         () async -> URL?
-    /// Mission workflows (#353) + closed-loop repair (#321).
+    /// Mission workflows (legacy bolph71656-ai/HTDT-Capture#353) + closed-loop repair (legacy bolph71656-ai/HTDT-Capture#321).
     public let importMissionDocument: (URL) -> Void
     public let setConnectedSpaceIntent: (Bool) -> Void
     public let beginConnectedSegment:
@@ -242,14 +242,14 @@ public struct CaptureRootActions {
     public let asBuiltRecordActual:
         (String, AnnotationEntityID) -> Void
     public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
-    /// Explicit Send-to-HTDT handoff (#225). For share-sheet
+    /// Explicit Send-to-HTDT handoff (legacy bolph71656-ai/HTDT-Capture#225). For share-sheet
     /// destinations `shareSheetOutcome` carries the system sheet's
     /// real completion so the receipt can never claim a delivery the
     /// operator did not make; nil for endpoint sends.
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination, HTDTShareSheetOutcome?)
             async -> Void
-    /// Mission inbox (#386): import a mission package file, start or
+    /// Mission inbox (legacy bolph71656-ai/HTDT-Capture#386): import a mission package file, start or
     /// resume a record, deactivate the active mission, archive a
     /// record, and evaluate a record's dependency report for display
     /// before Start.
@@ -257,14 +257,14 @@ public struct CaptureRootActions {
     public let startMission: (String) async -> Void
     public let deactivateMission: () async -> Void
     public let archiveMission: (String) async -> Void
-    /// Closes a mission whose field work or delivery landed (#456).
+    /// Closes a mission whose field work or delivery landed (legacy bolph71656-ai/HTDT-Capture#456).
     public let completeMission: (String) async -> Void
-    /// Persists the operator's mission annotation (#463).
+    /// Persists the operator's mission annotation (legacy bolph71656-ai/HTDT-Capture#463).
     public let updateMissionUserNote:
         (String, String?) async -> Void
     public let evaluateMissionDependencies:
         (String) async throws -> HTDTMissionDependencyReport
-    /// Destination pairing (#379): decode+validate a pasted/scanned
+    /// Destination pairing (legacy bolph71656-ai/HTDT-Capture#379): decode+validate a pasted/scanned
     /// QR payload, then confirm (stores the pinned pairing), forget,
     /// or revoke a pairing, and refresh a paired receiver's cached
     /// capability snapshot.
@@ -276,7 +276,7 @@ public struct CaptureRootActions {
     public let revokeDestination: (String) async -> Void
     public let refreshEndpointCapabilities:
         (String) async -> Void
-    /// Delivery queue (#387): operator controls for the durable job
+    /// Delivery queue (legacy bolph71656-ai/HTDT-Capture#387): operator controls for the durable job
     /// ledger — retry-now skips backoff, pause/resume gate attempts,
     /// cancel marks the job terminal, purge frees the queue-owned
     /// payload copy.
@@ -285,44 +285,44 @@ public struct CaptureRootActions {
     public let deliveryResume: (String) async -> Void
     public let deliveryCancel: (String) async -> Void
     public let deliveryPurgePayload: (String) async -> Void
-    /// Endpoint capability preflight (#374): fetches (or reads the
+    /// Endpoint capability preflight (legacy bolph71656-ai/HTDT-Capture#374): fetches (or reads the
     /// cached snapshot of) the destination's capability document and
     /// classifies the current export's compatibility.
     public let preflightDestination:
         (HTDTHandoffDestination) async
             -> HTDTCompatibilityVerdict
-    /// Independent export-archive deletion (#251).
+    /// Independent export-archive deletion (legacy bolph71656-ai/HTDT-Capture#251).
     public let deleteExportArchive:
         (PersistedCaptureRecord) -> Void
     /// App-local library metadata (names, notes, series grouping)
-    /// (#219).
+    /// (legacy bolph71656-ai/HTDT-Capture#219).
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
-    /// #393: the shared inbound-document boundary — identifies the
+    /// legacy bolph71656-ai/HTDT-Capture#393: the shared inbound-document boundary — identifies the
     /// file, gates it by capture state, and hands it to the owning
     /// importer.
     public let importInboundDocument: (URL) -> Void
-    /// #378: commits or dismisses the staged library-package import
+    /// legacy bolph71656-ai/HTDT-Capture#378: commits or dismisses the staged library-package import
     /// preview shown on the home surface.
     public let confirmLibraryImport: () -> Void
     public let dismissLibraryImport: () -> Void
-    /// #378: writes a `.htdtcapturelibrary` package of every
+    /// legacy bolph71656-ai/HTDT-Capture#378: writes a `.htdtcapturelibrary` package of every
     /// persisted capture plus filtered metadata and receipts.
     public let exportLibraryPackage: () -> Void
-    /// #394: archives or restores a series — lifecycle state only;
+    /// legacy bolph71656-ai/HTDT-Capture#394: archives or restores a series — lifecycle state only;
     /// canonical bundles are untouched.
     public let setSeriesArchived:
         (CaptureSeriesID, Bool) -> Void
-    /// #394: sets a revision's importance marks (milestone,
+    /// legacy bolph71656-ai/HTDT-Capture#394: sets a revision's importance marks (milestone,
     /// keep-local, favorite, pinned).
     public let updateRevisionMark:
         (CaptureRevisionID, CaptureRevisionMark) -> Void
-    /// #394: dependency-aware whole-series delete; `Bool` is the
+    /// legacy bolph71656-ai/HTDT-Capture#394: dependency-aware whole-series delete; `Bool` is the
     /// explicit protected-marks override.
     public let deleteSeries:
         (CaptureSeriesID, Bool) -> Void
-    /// Derived export support (#306/#318): availability probe plus the
+    /// Derived export support (legacy bolph71656-ai/HTDT-Capture#306/legacy bolph71656-ai/HTDT-Capture#318): availability probe plus the
     /// two export actions. All take the finalized capture's revision
     /// id — the host resolves the finalized directory itself.
     public let derivedExportInfo:
@@ -333,23 +333,23 @@ public struct CaptureRootActions {
     public let exportSurveyReport:
         (CaptureRevisionID, SurveyReportSelection)
             async -> DerivedExportOutcome
-    /// Persists a new app-local settings document (#338). The host
+    /// Persists a new app-local settings document (legacy bolph71656-ai/HTDT-Capture#338). The host
     /// owns the store and applies side effects (backup policy,
     /// guidance cues).
     public let updateAppSettings: (CaptureAppSettings) -> Void
-    /// Clears the durable equipment-catalog cache (#338).
+    /// Clears the durable equipment-catalog cache (legacy bolph71656-ai/HTDT-Capture#338).
     public let clearEquipmentCatalogCache: () -> Void
-    /// Capture-strategy profile selection (#307). Advisory guidance
+    /// Capture-strategy profile selection (legacy bolph71656-ai/HTDT-Capture#307). Advisory guidance
     /// and evidence budgets only; a task-plan-pinned strategy cannot
     /// be changed by the operator.
     public let selectCaptureStrategy:
         (CaptureStrategyIdentifier) -> Void
-    /// Plan-reference underlay import (#322): the host reads and
+    /// Plan-reference underlay import (legacy bolph71656-ai/HTDT-Capture#322): the host reads and
     /// validates the plan document at the given URL. Underlay
     /// authority stays reference-only — it never becomes observed
     /// truth.
     public let importPlanReference: (URL) -> Void
-    /// Semantic-only child revision (#319): loads the parent context
+    /// Semantic-only child revision (legacy bolph71656-ai/HTDT-Capture#319): loads the parent context
     /// and opens the correction sheet.
     public let beginSemanticCorrection:
         (PersistedCaptureRecord) -> Void
@@ -359,7 +359,7 @@ public struct CaptureRootActions {
         (SemanticChildRevisionEdits) async -> Bool
     public let cancelSemanticCorrection: () -> Void
     /// Reopen an end-accepted working revision that survived a
-    /// relaunch (issue #297): the draft comes back as a spatially
+    /// relaunch (issue bolph71656-ai/HTDT-Capture#297): the draft comes back as a spatially
     /// sealed Review — semantic work continues, live AR capture never
     /// resumes.
     public let openRecoveredDraft:
@@ -367,41 +367,41 @@ public struct CaptureRootActions {
     /// Permanently remove a recoverable draft's working revision.
     public let discardRecoveredDraft:
         (RecoverableWorkingRevision) -> Void
-    /// "Save and finish later" (issue #297): leave Review without
+    /// "Save and finish later" (issue bolph71656-ai/HTDT-Capture#297): leave Review without
     /// discarding the working revision; it stays listed as a
     /// recoverable draft on the next launch.
     public let suspendReview: () -> Void
-    /// Review remediation affordance (issue #298): routes the operator
+    /// Review remediation affordance (issue bolph71656-ai/HTDT-Capture#298): routes the operator
     /// to the surface that can legitimately clear a diagnostic — never
     /// a quality-gate bypass.
     public let performRemediation:
         (CaptureRemediationAction) -> Void
-    /// Practice/onboarding mode (issue #320): a guided rehearsal
+    /// Practice/onboarding mode (issue bolph71656-ai/HTDT-Capture#320): a guided rehearsal
     /// capture that can never produce a real finalized bundle.
     public let beginPracticeCapture: () -> Void
     /// Dismiss the first-launch practice prompt; `permanently` records
     /// "Don't show again" so the prompt is skipped forever while
     /// practice stays reachable from the home surface.
     public let dismissPracticePrompt: (Bool) -> Void
-    /// #295 permission-recovery actions for the `.permissions` and
+    /// legacy bolph71656-ai/HTDT-Capture#295 permission-recovery actions for the `.permissions` and
     /// `.setup` states: re-check the camera permission and resume the
     /// pre-capture pipeline, open iOS Settings, or leave the
     /// prerequisite flow back to idle without fabricating a failed
     /// capture.
     public let retryCameraPermission: () -> Void
     public let openCameraSettings: () -> Void
-    /// #268: picks (nil clears) the reference-object role for one
+    /// legacy bolph71656-ai/HTDT-Capture#268: picks (nil clears) the reference-object role for one
     /// manifest asset on the setup screen.
     public let setReferenceObjectRole:
         (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
     /// Leaves `.capabilityCheck`/`.permissions` back to `.idle`.
     public let cancelCaptureStart: () -> Void
-    /// Revision lineage (#396): operator-picked preferred head for a
+    /// Revision lineage (legacy bolph71656-ai/HTDT-Capture#396): operator-picked preferred head for a
     /// branched series — app-local metadata only, bundles never
     /// change; nil revision clears the pick.
     public let preferRevisionHead:
         (CaptureSeriesID, CaptureRevisionID?) -> Void
-    /// Cross-revision spatial registration (#395): the preview stage
+    /// Cross-revision spatial registration (legacy bolph71656-ai/HTDT-Capture#395): the preview stage
     /// — gathers shared-field-datum correspondences between the two
     /// finalized revisions and returns the proposed transform with
     /// per-correspondence residuals/RMS for inspection. Nil when the
@@ -410,19 +410,19 @@ public struct CaptureRootActions {
     public let proposeRevisionAlignment:
         (CaptureRevisionID, CaptureRevisionID) async
             -> CrossRevisionRegistrationSolve?
-    /// Cross-revision spatial registration (#395): accept — immutably
+    /// Cross-revision spatial registration (legacy bolph71656-ai/HTDT-Capture#395): accept — immutably
     /// records the alignment the operator previewed; returns the
     /// accepted record, nil on refusal (conflicting registration or
     /// solve failure).
     public let acceptRevisionAlignment:
         (CaptureRevisionID, CaptureRevisionID) async
             -> CrossRevisionRegistration?
-    /// Mission progress ledger (#397): records an explicit,
+    /// Mission progress ledger (legacy bolph71656-ai/HTDT-Capture#397): records an explicit,
     /// auditable mission-level waiver for a plan item — recordID,
     /// itemID, optional operator note.
     public let waiveMissionItem:
         (String, String, String?) async -> Void
-    /// #375 operator field notes: record a note mid-scan or in Review
+    /// legacy bolph71656-ai/HTDT-Capture#375 operator field notes: record a note mid-scan or in Review
     /// (text, category, needsAttention, attachLatestEvidence,
     /// dictated), resolve one, supersede one with corrected text, or
     /// bind an unbound note to an authority/evidence ref.
@@ -436,24 +436,24 @@ public struct CaptureRootActions {
         (CaptureFieldNoteID, String, CaptureFieldNoteCategory) -> Void
     public let bindFieldNote:
         (CaptureFieldNoteID, String) -> Void
-    /// #376: marks an evidence frame privacy-sensitive in the contact
+    /// legacy bolph71656-ai/HTDT-Capture#376: marks an evidence frame privacy-sensitive in the contact
     /// sheet (advisory flag — never deletes or mutates pixels).
     public let flagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
-    /// #460: clears a frame's privacy flag — the paired revocation of
+    /// legacy bolph71656-ai/HTDT-Capture#460: clears a frame's privacy flag — the paired revocation of
     /// `flagEvidenceFrameForPrivacy`.
     public let unflagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
-    /// #389 Support & Diagnostics: collect a privacy-reviewed
+    /// legacy bolph71656-ai/HTDT-Capture#389 Support & Diagnostics: collect a privacy-reviewed
     /// diagnostic package independent of any capture bundle.
     public let collectSupportDiagnostics:
         () async throws -> SupportDiagnosticsPackage
-    /// #458: app-local operator roster mutations — the workspace
+    /// legacy bolph71656-ai/HTDT-Capture#458: app-local operator roster mutations — the workspace
     /// remembers each saved Author profile app-wide and lets the
     /// operator forget one; committed captures keep their own copy.
     public let updateOperatorRoster: (OperatorProfile) -> Void
     public let removeFromOperatorRoster: (OperatorProfileID) -> Void
-    /// #400 non-spatial field mission returns: open (or resume) the
+    /// legacy bolph71656-ai/HTDT-Capture#400 non-spatial field mission returns: open (or resume) the
     /// field-return workspace for a mission record, persist a draft
     /// edit, finalize it into a `.htdtfieldreturn` artifact, and list
     /// finalized field-return documents for mission history.
@@ -465,23 +465,23 @@ public struct CaptureRootActions {
         (HTDTFieldReturnWorkspace) async -> URL?
     public let listFieldReturns:
         () async -> [HTDTFieldReturnDocument]
-    /// #422 paired Mission receive leg: bounded pull refresh
+    /// legacy bolph71656-ai/HTDT-Capture#422 paired Mission receive leg: bounded pull refresh
     /// ("Check HTDT") — enumerates each active paired receiver's
     /// pairing-scoped pending-Mission listing and stages verified
     /// packages through the canonical Mission Inbox importer.
     public let checkHTDTForMissions:
         () async -> [HTDTMissionReceiveReport]
-    /// #423 artifact-aware delivery: capability preflight and
+    /// legacy bolph71656-ai/HTDT-Capture#423 artifact-aware delivery: capability preflight and
     /// durable-queue send for a finalized `.htdtfieldreturn`.
     public let preflightFieldReturn:
         (HTDTFieldReturnID, HTDTHandoffDestination) async
             -> HTDTCompatibilityVerdict
-    /// #423 send outcome, surfaced inside the sheet — the durable
+    /// legacy bolph71656-ai/HTDT-Capture#423 send outcome, surfaced inside the sheet — the durable
     /// queue's verdict is otherwise invisible on a modal surface.
     public let sendFieldReturnToHTDT:
         (HTDTFieldReturnID, HTDTHandoffDestination) async
             -> FieldReturnSendOutcome
-    /// #423: the finalized `.htdtfieldreturn` container's URL for
+    /// legacy bolph71656-ai/HTDT-Capture#423: the finalized `.htdtfieldreturn` container's URL for
     /// the share sheet — nil when no finalized artifact exists.
     public let fieldReturnArtifactURL:
         (HTDTFieldReturnID) -> URL?
@@ -1008,7 +1008,7 @@ public struct CaptureRootActions {
 
 #if os(iOS)
 /// The system share sheet used for the share-destination HTDT
-/// handoff (#225): completing a share activity is the operator's
+/// handoff (legacy bolph71656-ai/HTDT-Capture#225): completing a share activity is the operator's
 /// explicit transfer action, and `completionWithItemsHandler` reports
 /// whether that actually happened — a dismissed sheet is not a
 /// delivery.
@@ -1057,59 +1057,59 @@ public struct CaptureRootView: View {
     public let qualityReport: CaptureQualityReport?
     public let advisoryReport: CaptureAdvisoryReport?
     /// Operator capture-task profile selected for this capture
-    /// (#217/#259). Nil = geometry-only / no profile.
+    /// (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259). Nil = geometry-only / no profile.
     public let taskProfile: CaptureTaskProfile?
     public let validationReport: BundleValidationReport?
     public let exportURL: URL?
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
     public let annotationEvidenceRefs: [String]
     /// Captured RoomPlan elements/mesh anchors the authority sheets
-    /// offer as binding targets (#218).
+    /// offer as binding targets (legacy bolph71656-ai/HTDT-Capture#218).
     public let annotationRoomPlanSurfaces: [CapturedSurfaceOption]
     public let annotationMeshAnchors: [CapturedSurfaceOption]
     public let annotationAuthorityCommitted: Bool
     /// Reloaded canonical authority used to seed a pre-finalization
-    /// correction pass through the annotation workspace (#163).
+    /// correction pass through the annotation workspace (legacy bolph71656-ai/HTDT-Capture#163).
     public let annotationRevisionSeed: AnnotationWorkspaceSeed?
     /// Host-owned HTDT equipment-catalog reference context for the
-    /// annotation workspace (#211). Survives annotation cancel → Review
+    /// annotation workspace (legacy bolph71656-ai/HTDT-Capture#211). Survives annotation cancel → Review
     /// → re-enter and relaunch; never part of capture-bundle authority.
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
-    /// #458: profiles remembered on this device for reuse across
+    /// legacy bolph71656-ai/HTDT-Capture#458: profiles remembered on this device for reuse across
     /// captures — fed to the Operators sheet in the workspace.
     public let operatorRoster: [OperatorProfile]
-    /// Every snapshot stored in the host's catalog library (#302); the
+    /// Every snapshot stored in the host's catalog library (legacy bolph71656-ai/HTDT-Capture#302); the
     /// workspace renders identity rows and explicit switching.
     public let equipmentCatalogLibrary:
         [HTDTEquipmentCatalogLibrary.StoredCatalog]
-    /// Imported capture task plan (#240), when loaded — drives the
-    /// pinned-catalog requirement (#302) and the role-binding profile
-    /// (#315) in the annotation workspace.
+    /// Imported capture task plan (legacy bolph71656-ai/HTDT-Capture#240), when loaded — drives the
+    /// pinned-catalog requirement (legacy bolph71656-ai/HTDT-Capture#302) and the role-binding profile
+    /// (legacy bolph71656-ai/HTDT-Capture#315) in the annotation workspace.
     public let taskPlan: HTDTCaptureTaskPlan?
     /// Live status for that plan — the annotation workspace's
     /// mark/bind actions write through it; nil when no plan is
     /// loaded.
     public let taskPlanStatus: Binding<CaptureTaskPlanStatus>?
     /// Identity of the live working revision; carries the
-    /// series/parent linkage for a revise-existing capture (#155).
+    /// series/parent linkage for a revise-existing capture (legacy bolph71656-ai/HTDT-Capture#155).
     public let workingSetIdentity: CaptureWorkingSetIdentity?
-    /// Visual presentation rows for the evidence refs (#255).
+    /// Visual presentation rows for the evidence refs (legacy bolph71656-ai/HTDT-Capture#255).
     public let annotationEvidenceFrames: [EvidenceFramePresentation]
-    /// RoomPlan objects offered for direct placement binding (#246).
+    /// RoomPlan objects offered for direct placement binding (legacy bolph71656-ai/HTDT-Capture#246).
     public let annotationRoomPlanObjects: [RoomPlanBindableObject]
-    /// Advisory plausibility findings for Review (#247); nil while the
+    /// Advisory plausibility findings for Review (legacy bolph71656-ai/HTDT-Capture#247); nil while the
     /// accepted-geometry context is unavailable.
     public let spatialPlausibilityFindings:
         [SpatialPlausibilityFinding]?
     /// The geometry context those findings / the workspace's live
-    /// hints were evaluated against (#247).
+    /// hints were evaluated against (legacy bolph71656-ai/HTDT-Capture#247).
     public let annotationPlausibilityContext:
         SpatialPlausibilityContext
-    /// Speaker-layout plans offered for guided batch capture (#278).
+    /// Speaker-layout plans offered for guided batch capture (legacy bolph71656-ai/HTDT-Capture#278).
     public let speakerLayoutPlans: [SpeakerLayoutPlan]
-    /// Session equipment-picker recents (#265).
+    /// Session equipment-picker recents (legacy bolph71656-ai/HTDT-Capture#265).
     public let equipmentRecents: EquipmentRecents
-    /// Draft store + binding for workspace autosave (#266).
+    /// Draft store + binding for workspace autosave (legacy bolph71656-ai/HTDT-Capture#266).
     public let annotationDraftStore: AnnotationWorkspaceDraftStore?
     public let annotationDraftRevisionID: CaptureRevisionID?
     public let scanningPreview: AnyView?
@@ -1121,44 +1121,44 @@ public struct CaptureRootView: View {
     public let derivedShapePreview: DerivedShapePreviewSnapshot
     public let scanEvidenceFrameCount: Int
     public let endScanGuidance: String?
-    /// Pre-capture setup model shown while `state == .setup` (#212).
+    /// Pre-capture setup model shown while `state == .setup` (legacy bolph71656-ai/HTDT-Capture#212).
     public let captureSetup: CaptureSetupPresentation?
-    /// Scanning surfaces for #250/#257/#252/#273/#279/#216/#283.
+    /// Scanning surfaces for legacy bolph71656-ai/HTDT-Capture#250/legacy bolph71656-ai/HTDT-Capture#257/legacy bolph71656-ai/HTDT-Capture#252/legacy bolph71656-ai/HTDT-Capture#273/legacy bolph71656-ai/HTDT-Capture#279/legacy bolph71656-ai/HTDT-Capture#216/legacy bolph71656-ai/HTDT-Capture#283.
     public let isEndingScan: Bool
     public let isCapturingEvidence: Bool
-    /// #275: a bounded high-resolution evidence still is in flight.
+    /// legacy bolph71656-ai/HTDT-Capture#275: a bounded high-resolution evidence still is in flight.
     public let isCapturingHighResolutionEvidence: Bool
     public let automaticEvidenceCount: Int
     public let lowLightGuidanceActive: Bool
-    /// #277: bounded camera-source preflight advisory card.
+    /// legacy bolph71656-ai/HTDT-Capture#277: bounded camera-source preflight advisory card.
     public let sourceQualityAdvisory: CameraSourceAdvisory?
     public let targetScanStatus: TargetScanStatus?
-    /// #269 live iterative-segmentation interaction state for the
+    /// legacy bolph71656-ai/HTDT-Capture#269 live iterative-segmentation interaction state for the
     /// object-pass UI (nil-equivalent `.unavailable` when idle).
     public let segmentationInteraction: SegmentationInteractionState
     public let declaredRegions: [DeclaredCoverageRegion]
     public let loopClosureCheckActive: Bool
     public let loopClosureAssessment: LoopClosureAssessment?
     public let guidanceCuesEnabled: Bool
-    /// Latest copilot resolution for the live scan (#272); nil
+    /// Latest copilot resolution for the live scan (legacy bolph71656-ai/HTDT-Capture#272); nil
     /// until the operator asks. Advisory only.
     public let scanCopilotResolution: ScanCopilotResolution?
     /// True while a copilot request is resolving (model or
     /// deterministic) so the UI can show a pending affordance.
     public let isScanCopilotResolving: Bool
-    /// Revisit flags dropped during the live scan (#325).
+    /// Revisit flags dropped during the live scan (legacy bolph71656-ai/HTDT-Capture#325).
     public let revisitFlags: [ScanRevisitFlag]
     /// True when the bounded flag store is full.
     public let revisitFlagsFull: Bool
     public let persistedInventory:
         PersistedCaptureInventoryResult
-    /// Live review-workspace model (#213); rebuilt by the host on
+    /// Live review-workspace model (legacy bolph71656-ai/HTDT-Capture#213); rebuilt by the host on
     /// request.
     public let reviewWorkspace: CaptureReviewWorkspaceModel?
-    /// Read-only persisted workspace (#294).
+    /// Read-only persisted workspace (legacy bolph71656-ai/HTDT-Capture#294).
     public let persistedWorkspace: CaptureReviewWorkspaceModel?
     /// RoomPlan bindables decoded from the persisted bundle
-    /// (#408/#409) — drive the read-only 3D scene and survey
+    /// (legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409) — drive the read-only 3D scene and survey
     /// targets on the persisted workspace.
     public let persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject]
@@ -1166,60 +1166,60 @@ public struct CaptureRootView: View {
     /// shows a failure pane rather than a spinner that never ends.
     public let persistedWorkspaceLoadFailed: Bool
     /// First captured room-frame point pending the front point
-    /// (#232).
+    /// (legacy bolph71656-ai/HTDT-Capture#232).
     public let roomFrameOriginPending: WorldPoint3D?
     /// Pending camera-captured center for a user-declared opening
-    /// candidate (issue #231).
+    /// candidate (issue bolph71656-ai/HTDT-Capture#231).
     public let openingCenterPending: WorldPoint3D?
-    /// Committed evidence references dangling after a re-End (#236).
+    /// Committed evidence references dangling after a re-End (legacy bolph71656-ai/HTDT-Capture#236).
     public let danglingSpatialIssues: [SpatialEvidenceIssue]
-    /// Operator-visible Send-to-HTDT destinations + receipts (#225).
+    /// Operator-visible Send-to-HTDT destinations + receipts (legacy bolph71656-ai/HTDT-Capture#225).
     public let handoffDestinations: [HTDTHandoffDestination]
     public let handoffReceipts: [HTDTHandoffReceipt]
-    /// The full receipt ledger across every revision (#394) — the
+    /// The full receipt ledger across every revision (legacy bolph71656-ai/HTDT-Capture#394) — the
     /// retention previews consult it so receipts for revisions other
     /// than the adopted one are not invisible to delete previews.
     public let allHandoffReceipts: [HTDTHandoffReceipt]
-    /// Mission inbox records (#386), the active record id, QR-paired
-    /// receivers (#379) and the durable delivery-job ledger (#387) —
+    /// Mission inbox records (legacy bolph71656-ai/HTDT-Capture#386), the active record id, QR-paired
+    /// receivers (legacy bolph71656-ai/HTDT-Capture#379) and the durable delivery-job ledger (legacy bolph71656-ai/HTDT-Capture#387) —
     /// surfaced on the home screen's sidebar.
     public let missionRecords: [HTDTMissionRecord]
     public let activeMissionRecordID: String?
     public let pairedDestinations: [PairedHTDTDestination]
     public let deliveryJobs: [HTDTDeliveryJob]
-    /// App-local capture names/notes/series metadata (#219).
+    /// App-local capture names/notes/series metadata (legacy bolph71656-ai/HTDT-Capture#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
-    /// #390: one-line notice when a durable document was preserved
+    /// legacy bolph71656-ai/HTDT-Capture#390: one-line notice when a durable document was preserved
     /// rather than upgraded (its bytes are kept, never emptied).
     public let localStateUpgradeNotice: String?
-    /// #378: staged library-package import preview awaiting confirm.
+    /// legacy bolph71656-ai/HTDT-Capture#378: staged library-package import preview awaiting confirm.
     public let libraryImportPreview:
         CaptureLibraryImportPreview?
-    /// #378: the `.htdtcapturelibrary` the host last wrote, offered
+    /// legacy bolph71656-ai/HTDT-Capture#378: the `.htdtcapturelibrary` the host last wrote, offered
     /// to the home surface's share affordance.
     public let libraryExportURL: URL?
-    /// Retained-evidence inspection for a failed capture (#224).
+    /// Retained-evidence inspection for a failed capture (legacy bolph71656-ai/HTDT-Capture#224).
     public let failedInspection: FailedCaptureInspection?
-    /// #437: the failed capture's working revision can be preserved
+    /// legacy bolph71656-ai/HTDT-Capture#437: the failed capture's working revision can be preserved
     /// as a recoverable draft — set when `.failed` was entered with
     /// an end-accepted phase marker committed.
     public let failedDraftRecoverable: Bool
-    /// #437: typed reason the last finalize attempt was rejected —
+    /// legacy bolph71656-ai/HTDT-Capture#437: typed reason the last finalize attempt was rejected —
     /// drives the structured recovery notice on the Review surface.
     public let finalizeRejection: CaptureFinalizeRejection?
-    /// #437: typed reason the last export attempt was rejected —
+    /// legacy bolph71656-ai/HTDT-Capture#437: typed reason the last export attempt was rejected —
     /// drives the structured recovery notice on the Finalized
     /// surface.
     public let exportRejection: CaptureExportRejection?
     /// Required-task mission progress shown in the journey header
-    /// (#372); nil when no plan is active.
+    /// (legacy bolph71656-ai/HTDT-Capture#372); nil when no plan is active.
     public let taskPlanMission: CaptureJourneyMissionSummary?
-    /// Spatial authority sealed for finalization (#276).
+    /// Spatial authority sealed for finalization (legacy bolph71656-ai/HTDT-Capture#276).
     public let spatialCaptureSealed: Bool
     /// App-local device settings shown in the Settings surface
-    /// (#338) — presentation, defaults, storage policy.
+    /// (legacy bolph71656-ai/HTDT-Capture#338) — presentation, defaults, storage policy.
     public let appSettings: CaptureAppSettings
-    /// Mission workflow state surfaced on the root (#353/#321).
+    /// Mission workflow state surfaced on the root (legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#321).
     public let missionEntries: [MissionWorkflowEntry]
     public let missionTaskPlan: HTDTCaptureTaskPlan?
     public let missionTaskPlanOutcomes:
@@ -1230,65 +1230,65 @@ public struct CaptureRootView: View {
     public let asBuiltItems: [AsBuiltVerificationItem]
     public let asBuiltGhostOverlayEnabled: Bool
     public let asBuiltAlignmentInstalled: Bool
-    /// The installed plan→capture alignment authority (#293), when
+    /// The installed plan→capture alignment authority (legacy bolph71656-ai/HTDT-Capture#293), when
     /// established — surfaced in the mission as-built destination.
     public let asBuiltAlignment: PlanAlignmentAuthority?
-    /// Ghost-overlay plan model for the as-built destination (#293);
+    /// Ghost-overlay plan model for the as-built destination (legacy bolph71656-ai/HTDT-Capture#293);
     /// nil until an explicit alignment authority is installed.
     public let asBuiltOverlayModel: RoomPlanPreviewModel?
-    /// Versioned tolerance policy supplied by the plan (#293).
+    /// Versioned tolerance policy supplied by the plan (legacy bolph71656-ai/HTDT-Capture#293).
     public let asBuiltTolerancePolicyRef: String?
     public let asBuiltActualCandidates: [CaptureAnnotationEntity]
     public let roomFrameAvailable: Bool
     public let repairTaskRows: [HTDTRepairTaskRow]
-    /// Live evidence-storage advisory for the scanning HUD (#308).
+    /// Live evidence-storage advisory for the scanning HUD (legacy bolph71656-ai/HTDT-Capture#308).
     public let evidenceStorageAdvisory:
         CaptureEvidenceStorageAdvisory?
-    /// Selected capture-strategy profile for setup display (#307);
+    /// Selected capture-strategy profile for setup display (legacy bolph71656-ai/HTDT-Capture#307);
     /// pinned means the active task plan fixed it.
     public let selectedStrategyID: CaptureStrategyIdentifier
     public let strategyPinnedByTaskPlan: Bool
-    /// App-local acquisition origins keyed by revision (#317).
+    /// App-local acquisition origins keyed by revision (legacy bolph71656-ai/HTDT-Capture#317).
     public let captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord]
-    /// Pending/committed plan-reference underlay (#322).
+    /// Pending/committed plan-reference underlay (legacy bolph71656-ai/HTDT-Capture#322).
     public let planUnderlayDocument: PlanUnderlayDocument?
-    /// Parent context for the in-flight semantic correction (#319);
+    /// Parent context for the in-flight semantic correction (legacy bolph71656-ai/HTDT-Capture#319);
     /// nil when no correction sheet is open.
     public let semanticCorrectionContext:
         SemanticChildRevisionContext?
     /// Whether the working set's AR coordinate authority is still
-    /// live (issue #297). False on a draft recovered after relaunch:
+    /// live (issue bolph71656-ai/HTDT-Capture#297). False on a draft recovered after relaunch:
     /// spatial evidence is frozen and live-capture affordances
     /// (Continue scanning, evidence frames) must not appear.
     public let liveSpatialAuthority: Bool
     /// Recovery provenance for a draft reopened after relaunch
-    /// (issue #297): unsupported/superseded files the restore pass
+    /// (issue bolph71656-ai/HTDT-Capture#297): unsupported/superseded files the restore pass
     /// found, surfaced instead of guessed.
     public let recoveredDraftReport: WorkingRevisionRestoreReport?
     /// True while the active working set is a practice capture
-    /// (issue #320): never finalizable, never sendable to HTDT.
+    /// (issue bolph71656-ai/HTDT-Capture#320): never finalizable, never sendable to HTDT.
     public let practiceCaptureActive: Bool
-    /// First-launch practice prompt (#320): the host shows it once
+    /// First-launch practice prompt (legacy bolph71656-ai/HTDT-Capture#320): the host shows it once
     /// unless the operator permanently dismissed it.
     public let practicePromptShown: Bool
-    /// Accepted cross-revision spatial registrations (#395) —
+    /// Accepted cross-revision spatial registrations (legacy bolph71656-ai/HTDT-Capture#395) —
     /// app-local transform authority listed in series detail.
     public let crossRevisionRegistrations:
         [CrossRevisionRegistration]
-    /// Replayed mission progress per inbox record id (#397) —
+    /// Replayed mission progress per inbox record id (legacy bolph71656-ai/HTDT-Capture#397) —
     /// derived each load from the append-only ledger, never a stored
     /// percentage.
     public let missionProgressEvaluations:
         [String: MissionProgressEvaluation]
-    /// Long-running host operations currently in flight (#309).
+    /// Long-running host operations currently in flight (legacy bolph71656-ai/HTDT-Capture#309).
     /// Controls whose underlying guard would silently no-op are
     /// disabled and each in-flight op shows explicit progress.
     public let activeOperations: Set<CaptureHostOperation>
     /// The persisted revision an open/delete operation targets, so
-    /// the library row itself can show its busy state (#309).
+    /// the library row itself can show its busy state (legacy bolph71656-ai/HTDT-Capture#309).
     public let operationTargetRevisionID: CaptureRevisionID?
-    /// Bound space for the annotation workspace (#276): while live
+    /// Bound space for the annotation workspace (legacy bolph71656-ai/HTDT-Capture#276): while live
     /// capture runs it is the active session space; once sealed after
     /// a committed pass it stays bound so non-spatial corrections can
     /// reopen the saved authority.
@@ -1300,11 +1300,11 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     /// Which terminal discard the `.failed` surface's destructive
-    /// recovery step asks the operator to confirm (#437) — start a
+    /// recovery step asks the operator to confirm (legacy bolph71656-ai/HTDT-Capture#437) — start a
     /// new capture afterward, or only remove the retained data.
     @State private var pendingFailedDiscard: FailedDiscardIntent?
     @State private var reviewWorkspaceShown = false
-    /// #364 §11: read-only re-open of the committed capture from the
+    /// legacy bolph71656-ai/HTDT-Capture#364 §11: read-only re-open of the committed capture from the
     /// finalized summary.
     @State private var viewingFinalizedCapture = false
     @State private var handoffDestinationsShown = false
@@ -1321,14 +1321,14 @@ public struct CaptureRootView: View {
     @State private var pendingRemediation:
         CaptureRemediationAction?
     @State private var diagnosticShareURL: URL?
-    /// Derived export sheets (#306/#318): which validated finalized
+    /// Derived export sheets (legacy bolph71656-ai/HTDT-Capture#306/legacy bolph71656-ai/HTDT-Capture#318): which validated finalized
     /// capture to export from — the active adoption or a library row.
     @State private var derived3DTarget: DerivedExportTarget?
     @State private var surveyReportTarget: DerivedExportTarget?
     @State private var missionWorkflowsShown = false
     @State private var importingMissionDocument = false
     /// Per-destination endpoint preflight results keyed by
-    /// destination id (#374).
+    /// destination id (legacy bolph71656-ai/HTDT-Capture#374).
     @State private var preflightVerdicts:
         [String: HTDTCompatibilityVerdict] = [:]
     @State private var preflightInFlight: Set<String> = []
@@ -1357,7 +1357,7 @@ public struct CaptureRootView: View {
             [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
         taskPlan: HTDTCaptureTaskPlan? = nil,
         taskPlanStatus: Binding<CaptureTaskPlanStatus>? = nil,
-        /// Required-task progress for the journey header (#372):
+        /// Required-task progress for the journey header (legacy bolph71656-ai/HTDT-Capture#372):
         /// evaluated by the host from the plan plus the committed
         /// records — nil when no plan is active or none are required.
         taskPlanMission: CaptureJourneyMissionSummary? = nil,
@@ -1596,7 +1596,7 @@ public struct CaptureRootView: View {
     }
 
     /// The terminal-discard choice a `.failed` destructive recovery
-    /// step confirms before running (#437).
+    /// step confirms before running (legacy bolph71656-ai/HTDT-Capture#437).
     private enum FailedDiscardIntent {
         /// Remove the retained data, then open capture setup.
         case discardAndStartNew
@@ -1604,7 +1604,7 @@ public struct CaptureRootView: View {
         case discardOnly
     }
 
-    /// #437: the resolved failure → recovery contract for the
+    /// legacy bolph71656-ai/HTDT-Capture#437: the resolved failure → recovery contract for the
     /// current capture-terminal surface — nil when the surface is
     /// healthy and shows its normal controls.
     private var recoveryPlan: CaptureRecoveryPlan? {
@@ -1642,7 +1642,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// Binds a plan step to its real host action (#437) — every
+    /// Binds a plan step to its real host action (legacy bolph71656-ai/HTDT-Capture#437) — every
     /// action id the resolver emits lands here.
     private func performRecoveryAction(
         _ action: CaptureRecoveryAction
@@ -1703,7 +1703,7 @@ public struct CaptureRootView: View {
     }
 
     /// Manifest-declared `evidence/frames/*.pixelbin` payloads — the
-    /// visual camera evidence the export would package (issue #241).
+    /// visual camera evidence the export would package (issue bolph71656-ai/HTDT-Capture#241).
     private var retainedVisualEvidenceCount: Int {
         validationReport?.manifest.files
             .filter {
@@ -1793,7 +1793,7 @@ public struct CaptureRootView: View {
                     endScan: actions.beginReview
                 )
             } else if state == .idle {
-                // #360/#362: capture-first home + series-first
+                // legacy bolph71656-ai/HTDT-Capture#360/legacy bolph71656-ai/HTDT-Capture#362: capture-first home + series-first
                 // library. NavigationSplitView collapses to the push
                 // stack on compact width and splits on regular width.
                 CaptureHomeView(
@@ -1896,7 +1896,7 @@ public struct CaptureRootView: View {
                     equipmentCatalog: equipmentCatalog,
                     // The same shared AR surface renders inside the
                     // camera capture sheets — no second session
-                    // (#214). Under a finalization seal (#276) the
+                    // (legacy bolph71656-ai/HTDT-Capture#214). Under a finalization seal (legacy bolph71656-ai/HTDT-Capture#276) the
                     // session is torn down: passing nil hides every
                     // raycast/orientation/scan capture affordance in
                     // the workspace and its sheets.
@@ -1959,7 +1959,7 @@ public struct CaptureRootView: View {
             } else {
                 List {
                 Section {
-                    // The loop-aware journey header (#372) replaces
+                    // The loop-aware journey header (legacy bolph71656-ai/HTDT-Capture#372) replaces
                     // the bare state banner: current stage, truthful
                     // per-stage statuses, mission progress and
                     // technical readiness — all derived, never
@@ -1978,7 +1978,7 @@ public struct CaptureRootView: View {
                 if state == .failed,
                    let plan = recoveryPlan
                 {
-                    // #437: the failure banner names the failed step,
+                    // legacy bolph71656-ai/HTDT-Capture#437: the failure banner names the failed step,
                     // gives the reason in plain language, and states
                     // whether the data survives as a resumable draft.
                     Section {
@@ -2052,9 +2052,9 @@ public struct CaptureRootView: View {
                     }
                 }
 
-                // #353: mission workflows reachable from production
+                // legacy bolph71656-ai/HTDT-Capture#353: mission workflows reachable from production
                 // root; entries appear only when a mission requires
-                // them. #321: unresolved repair tasks surface here.
+                // them. legacy bolph71656-ai/HTDT-Capture#321: unresolved repair tasks surface here.
                 Section("Mission workflows") {
                     Button("Mission workflows…") {
                         missionWorkflowsShown = true
@@ -2296,9 +2296,9 @@ public struct CaptureRootView: View {
                 .navigationDestination(
                     isPresented: $viewingFinalizedCapture
                 ) {
-                    // #364 §11: read-only re-open of the committed
+                    // legacy bolph71656-ai/HTDT-Capture#364 §11: read-only re-open of the committed
                     // capture — same pattern as the home surface's
-                    // persisted viewer (#294).
+                    // persisted viewer (legacy bolph71656-ai/HTDT-Capture#294).
                     if let persistedWorkspace {
                         CaptureReviewWorkspaceView(
                             model: persistedWorkspace,
@@ -2317,7 +2317,7 @@ public struct CaptureRootView: View {
                         ProgressView("Loading capture…")
                     }
                 }
-                // #364 §7.5: Review carries exactly one prominent
+                // legacy bolph71656-ai/HTDT-Capture#364 §7.5: Review carries exactly one prominent
                 // primary action in a persistent bottom bar instead
                 // of a CTA row that scrolls away mid-list — same
                 // pattern as the Setup stage's Begin footer.
@@ -2359,7 +2359,7 @@ public struct CaptureRootView: View {
                         "Stops the capture and permanently removes the working revision. Finalized captures are never touched."
                     )
                 }
-                // #437: the destructive steps on the failed surface
+                // legacy bolph71656-ai/HTDT-Capture#437: the destructive steps on the failed surface
                 // confirm before removing retained data — optionally
                 // continuing into capture setup.
                 .alert(
@@ -2625,7 +2625,7 @@ public struct CaptureRootView: View {
                 }
                 .fileImporter(
                     isPresented: $importingMissionDocument,
-                    // #457: `.htdtmission` mission packages are
+                    // legacy bolph71656-ai/HTDT-Capture#457: `.htdtmission` mission packages are
                     // pickable alongside JSON mission documents.
                     allowedContentTypes: [
                         .json, .plainText, .htdtMission,
@@ -2782,13 +2782,13 @@ public struct CaptureRootView: View {
     }
 
     /// True while any long-running host operation is in flight
-    /// (#309): controls whose coordinator guard would silently no-op
+    /// (legacy bolph71656-ai/HTDT-Capture#309): controls whose coordinator guard would silently no-op
     /// are rendered disabled with the in-flight progress instead.
     private var hostBusy: Bool {
         !activeOperations.isEmpty
     }
 
-    /// The loop-aware capture journey (#372): which stage the operator
+    /// The loop-aware capture journey (legacy bolph71656-ai/HTDT-Capture#372): which stage the operator
     /// is in, each stage's truthful status, the one dominant action,
     /// and mission/readiness summaries — derived here, never
     /// persisted. An adopted persisted capture (`workingSetIdentity
@@ -2829,7 +2829,7 @@ public struct CaptureRootView: View {
                 .disabled(
                     !capabilities.roomPlanMeshEligible || hostBusy
                 )
-            // #351: import is a library/home action, not a capture
+            // legacy bolph71656-ai/HTDT-Capture#351: import is a library/home action, not a capture
             // capability — it stays available on non-capture-capable
             // devices.
             ForEach(
@@ -2872,7 +2872,7 @@ public struct CaptureRootView: View {
         case .preparing:
             progressRow("Preparing capture working set…")
             // Working-set creation is cancellable too — a stalled
-            // preparation must not strand the operator (#254).
+            // preparation must not strand the operator (legacy bolph71656-ai/HTDT-Capture#254).
             discardButton
 
         case .scanning:
@@ -2891,7 +2891,7 @@ public struct CaptureRootView: View {
             discardButton
 
         case .reviewing:
-            // #437: a rejected finalize attempt names the specific
+            // legacy bolph71656-ai/HTDT-Capture#437: a rejected finalize attempt names the specific
             // step and the ordered next-step set — retry, save the
             // draft for later, or discard. The capture stays
             // mutable; nothing was lost.
@@ -2909,7 +2909,7 @@ public struct CaptureRootView: View {
                 }
                 recoveryStepsView(plan)
             }
-            // #297: a draft recovered after relaunch has no live AR
+            // legacy bolph71656-ai/HTDT-Capture#297: a draft recovered after relaunch has no live AR
             // coordinate authority — Continue scanning and evidence
             // capture must never appear; semantic review/authoring and
             // finalization still work.
@@ -2979,7 +2979,7 @@ public struct CaptureRootView: View {
                 .foregroundStyle(.secondary)
             }
 
-            // #364 §7.5: the stage's single primary action is pinned
+            // legacy bolph71656-ai/HTDT-Capture#364 §7.5: the stage's single primary action is pinned
             // to the persistent bottom bar (see the safeAreaInset on
             // this screen) — the list keeps only secondary actions.
             if annotationAuthorityCommitted {
@@ -2996,7 +2996,7 @@ public struct CaptureRootView: View {
             if activeOperations.contains(.reviewOperation) {
                 progressRow("Finalizing capture…")
             }
-            // #297 "Save and finish later": the end-accepted draft is
+            // legacy bolph71656-ai/HTDT-Capture#297 "Save and finish later": the end-accepted draft is
             // durable; leaving Review keeps it listed as a recoverable
             // draft on the home surface and next launch.
             if workingSetIdentity != nil {
@@ -3012,7 +3012,7 @@ public struct CaptureRootView: View {
                 .disabled(hostBusy)
 
         case .failed:
-            // #437: the ordered recovery contract — reopen/keep the
+            // legacy bolph71656-ai/HTDT-Capture#437: the ordered recovery contract — reopen/keep the
             // draft when the End boundary survived, inspect or
             // export the retained evidence, or discard. Every step
             // is a real action; the resolver never emits a dead
@@ -3031,7 +3031,7 @@ public struct CaptureRootView: View {
             progressRow("Validating and finalizing capture…")
 
         case .finalized:
-            // #437: a rejected export attempt names the specific
+            // legacy bolph71656-ai/HTDT-Capture#437: a rejected export attempt names the specific
             // step and the ordered next-step set — the finalized
             // revision itself is durable; only the transport failed.
             if let plan = recoveryPlan {
@@ -3100,8 +3100,8 @@ public struct CaptureRootView: View {
             } else {
                 // The export always packages every retained pixel
                 // payload; the operator confirms visual evidence is
-                // included before preparing it (issue #241). One
-                // dominant action per stage (#372).
+                // included before preparing it (issue bolph71656-ai/HTDT-Capture#241). One
+                // dominant action per stage (legacy bolph71656-ai/HTDT-Capture#372).
                 Button("Prepare .htdtcapture") {
                     confirmingExport = true
                 }
@@ -3194,10 +3194,10 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// #364 §7.5: the review stage's single primary action lives in a
+    /// legacy bolph71656-ai/HTDT-Capture#364 §7.5: the review stage's single primary action lives in a
     /// persistent bottom bar — always present, always exactly one
     /// prominent action, chosen by the same journey rule as before
-    /// (#372): a blocking integrity problem → Review diagnostics;
+    /// (legacy bolph71656-ai/HTDT-Capture#372): a blocking integrity problem → Review diagnostics;
     /// required mission tasks outstanding → Complete required tasks;
     /// coverage unknown → Continue scanning; otherwise → Validate and
     /// finalize.
@@ -3256,7 +3256,7 @@ public struct CaptureRootView: View {
                     || qualityReport?.integrityStatus != .pass
                     || hostBusy
                 )
-                // #298: the disabled gate names its blocking
+                // legacy bolph71656-ai/HTDT-Capture#298: the disabled gate names its blocking
                 // reasons inline instead of leaving the operator
                 // to hunt through the diagnostics section.
                 let blockers = (qualityReport?.diagnostics ?? [])
@@ -3316,7 +3316,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// #364 §11: the finalized surface opens with a plain-language
+    /// legacy bolph71656-ai/HTDT-Capture#364 §11: the finalized surface opens with a plain-language
     /// summary — what was committed, how much evidence it carries and
     /// the mission outcome — before the export/handoff controls.
     /// Counts come from the validated manifest and quality report,
@@ -3403,7 +3403,7 @@ public struct CaptureRootView: View {
                 )
             }
 
-            // #364 §11: the committed capture reopens read-only in the
+            // legacy bolph71656-ai/HTDT-Capture#364 §11: the committed capture reopens read-only in the
             // same review workspace the operator already knows.
             if finalizedPersistedRecord != nil {
                 Button("View capture") {
@@ -3431,7 +3431,7 @@ public struct CaptureRootView: View {
 
     /// The validated persisted record for the capture currently on
     /// screen — required to reopen it read-only through
-    /// `loadPersistedWorkspace` (#294).
+    /// `loadPersistedWorkspace` (legacy bolph71656-ai/HTDT-Capture#294).
     private var finalizedPersistedRecord: PersistedCaptureRecord? {
         guard let revisionID =
                 validationReport?.manifest.captureRevisionID
@@ -3444,7 +3444,7 @@ public struct CaptureRootView: View {
     }
 
     /// The `.permissions` state is a prerequisite/recovery surface
-    /// (#295), never a failed capture: a denied operator gets a direct
+    /// (legacy bolph71656-ai/HTDT-Capture#295), never a failed capture: a denied operator gets a direct
     /// path to iOS Settings and an in-place retry, a restricted device
     /// gets a distinct explanation, and either path can always cancel
     /// back to idle without fabricating a working revision.
@@ -3531,7 +3531,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// Shared post-capture controls (#221): rescan-as-revision with the
+    /// Shared post-capture controls (legacy bolph71656-ai/HTDT-Capture#221): rescan-as-revision with the
     /// fresh-authority explainer, and the parent/child comparison.
     @ViewBuilder
     private var revisionControls: some View {
@@ -3578,7 +3578,7 @@ public struct CaptureRootView: View {
         .disabled(hostBusy)
     }
 
-    /// A journey-declared secondary action (#372): the presentation
+    /// A journey-declared secondary action (legacy bolph71656-ai/HTDT-Capture#372): the presentation
     /// orders the row set; the view binds each stable id to its host
     /// callback and keeps destructive actions visually separated.
     @ViewBuilder
@@ -3591,7 +3591,7 @@ public struct CaptureRootView: View {
                 .captureSecondaryAction()
         case .continueScanning:
             // Saved annotations/measurements survive a reopen while
-            // the same coordinate authority is still valid (#236).
+            // the same coordinate authority is still valid (legacy bolph71656-ai/HTDT-Capture#236).
             Button(
                 "Continue scanning",
                 action: actions.continueScanning
@@ -3629,7 +3629,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// One plan step rendered as its role demands (#437): primary
+    /// One plan step rendered as its role demands (legacy bolph71656-ai/HTDT-Capture#437): primary
     /// and secondary are real buttons bound through
     /// `performRecoveryAction`, destructive asks for confirmation,
     /// guidance is an instruction line — never a control. The
@@ -3681,7 +3681,7 @@ public struct CaptureRootView: View {
     }
 
     /// The ordered next-step list for a resolved recovery plan
-    /// (#437) — reason + detail are already shown by the surface's
+    /// (legacy bolph71656-ai/HTDT-Capture#437) — reason + detail are already shown by the surface's
     /// notice; this renders only the actionable steps in order.
     @ViewBuilder
     private func recoveryStepsView(
@@ -3710,7 +3710,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// Where finalized data is retained + its backup state (#305) —
+    /// Where finalized data is retained + its backup state (legacy bolph71656-ai/HTDT-Capture#305) —
     /// stated on the library itself, not only inside Settings.
     private var finalizedRetentionText: String {
         switch appSettings.storagePrivacy.finalizedBackupPolicy {
@@ -3727,7 +3727,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// Deletion scope (#305): always states what is removed locally;
+    /// Deletion scope (legacy bolph71656-ai/HTDT-Capture#305): always states what is removed locally;
     /// when finalized data may join device backup it also says a
     /// backup copy is managed by the system.
     private func deletionExplanationText(
@@ -3753,7 +3753,7 @@ public struct CaptureRootView: View {
                 )
             }
         }
-        // Lineage-aware deletion (issue #396): a revision that still
+        // Lineage-aware deletion (issue bolph71656-ai/HTDT-Capture#396): a revision that still
         // has descendants naming it parent gets the extra warning.
         if pending.descendantCount > 0 {
             base += " " + captureCountPhrase(
@@ -3766,7 +3766,7 @@ public struct CaptureRootView: View {
                 )
             )
         }
-        // Retention warnings (#394): receipts, mission links, and
+        // Retention warnings (legacy bolph71656-ai/HTDT-Capture#394): receipts, mission links, and
         // only-local-copy are advisory context, not blocks.
         for warning in pending.warnings {
             base += " " + warning.deletionSummary
@@ -3774,7 +3774,7 @@ public struct CaptureRootView: View {
         return base
     }
 
-    /// Failed-capture retained-evidence detail (#224), extracted from
+    /// Failed-capture retained-evidence detail (legacy bolph71656-ai/HTDT-Capture#224), extracted from
     /// the List body so the type-checker stays inside its budget.
     @ViewBuilder
     private func failedInspectionSection(
@@ -3848,7 +3848,7 @@ public struct CaptureRootView: View {
     /// Routes a chosen Send-to-HTDT destination: share-sheet
     /// destinations present the system sheet (receipt recorded when
     /// the sheet reports its outcome); endpoint destinations POST
-    /// through the client (#225).
+    /// through the client (legacy bolph71656-ai/HTDT-Capture#225).
     private func selectHandoffDestination(
         _ destination: HTDTHandoffDestination
     ) {
@@ -3862,7 +3862,7 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// Endpoint capability preflight row (#374): an explicit "check
+    /// Endpoint capability preflight row (legacy bolph71656-ai/HTDT-Capture#374): an explicit "check
     /// compatibility" action per endpoint destination, then the
     /// verdict rendered as the exact gap list — never a bare pass.
     @ViewBuilder
@@ -3937,7 +3937,7 @@ public struct CaptureRootView: View {
 
     /// The system share completion IS the share-sheet handoff; the
     /// receipt records the outcome the sheet actually reported —
-    /// `delivered` only when an activity completed (#225).
+    /// `delivered` only when an activity completed (legacy bolph71656-ai/HTDT-Capture#225).
     private func recordShareSheetHandoff(
         completed: Bool,
         error: Error?
@@ -4003,7 +4003,7 @@ public struct CaptureRootView: View {
     }
 
     /// Maps the capture state onto the frozen status vocabulary
-    /// (#361/#364): every screen reports state through the same
+    /// (legacy bolph71656-ai/HTDT-Capture#361/legacy bolph71656-ai/HTDT-Capture#364): every screen reports state through the same
     /// symbol+label.
     private func captureStateStatus(
         _ state: CaptureState

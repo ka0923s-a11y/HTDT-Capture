@@ -1,6 +1,6 @@
 import Foundation
 
-/// UI-facing model of a long-running host operation (#309).
+/// UI-facing model of a long-running host operation (legacy bolph71656-ai/HTDT-Capture#309).
 ///
 /// The coordinator guards conflicting work with private in-flight
 /// flags; `activeOperations` publishes the same information so views
@@ -27,7 +27,7 @@ public enum CaptureHostOperation: String, Sendable, Equatable, Hashable {
     case annotationCommit = "annotation_commit"
     /// Diagnostic package export from the failed state.
     case exportDiagnostics = "export_diagnostics"
-    /// Semantic-child revision build (#319): stages the child under
+    /// Semantic-child revision build (legacy bolph71656-ai/HTDT-Capture#319): stages the child under
     /// `working/`, so the library must stay busy while it is in
     /// flight or the inventory classifies the staged bytes as an
     /// orphan.

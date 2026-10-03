@@ -21,12 +21,12 @@ public struct CapturedSurfaceOption: Sendable, Equatable, Identifiable {
     }
 }
 
-/// Theater-semantic authority sections (#218, #233, #256, #262, #264,
-/// #280, #281, #288, #289, #290, #316, #335, #346). Every record is
+/// Theater-semantic authority sections (legacy bolph71656-ai/HTDT-Capture#218, legacy bolph71656-ai/HTDT-Capture#233, legacy bolph71656-ai/HTDT-Capture#256, legacy bolph71656-ai/HTDT-Capture#262, legacy bolph71656-ai/HTDT-Capture#264,
+/// legacy bolph71656-ai/HTDT-Capture#280, legacy bolph71656-ai/HTDT-Capture#281, legacy bolph71656-ai/HTDT-Capture#288, legacy bolph71656-ai/HTDT-Capture#289, legacy bolph71656-ai/HTDT-Capture#290, legacy bolph71656-ai/HTDT-Capture#316, legacy bolph71656-ai/HTDT-Capture#335, legacy bolph71656-ai/HTDT-Capture#346). Every record is
 /// user-authored authority — the app never infers the semantics it
 /// records.
 ///
-/// #357: mission/object-first workspace. Task-plan semantic/evidence
+/// legacy bolph71656-ai/HTDT-Capture#357: mission/object-first workspace. Task-plan semantic/evidence
 /// items deep-link straight into the matching authoring form, entity
 /// context filters the offered record kinds, staged records list in
 /// human terms with inspect/edit/delete (+undo), the snapshot flow
@@ -42,22 +42,22 @@ struct TheaterAuthoritySection: View {
     let entities: [CaptureAnnotationEntity]
     /// Staged measurements — used to evaluate task-plan outcomes.
     let measurements: [CaptureMeasurement]
-    /// Captured RoomPlan surfaces/objects offered for binding (#218).
+    /// Captured RoomPlan surfaces/objects offered for binding (legacy bolph71656-ai/HTDT-Capture#218).
     let roomPlanSurfaces: [CapturedSurfaceOption]
-    /// Captured mesh anchors offered for binding (#218).
+    /// Captured mesh anchors offered for binding (legacy bolph71656-ai/HTDT-Capture#218).
     let meshAnchors: [CapturedSurfaceOption]
     /// Design targets the placement-verification flow can aim at
-    /// (#346); empty until the mission supplies them.
+    /// (legacy bolph71656-ai/HTDT-Capture#346); empty until the mission supplies them.
     let plannedTargets: [PlannedAsBuiltSpec]
     /// Proven plan alignment the placement assist runs under, when
-    /// the session established one (#293).
+    /// the session established one (legacy bolph71656-ai/HTDT-Capture#293).
     let establishedAlignment: PlanAlignmentAuthority?
     /// Live task-plan tracker — when bound, mission items deep-link
     /// into authoring and fulfill through exact record/evidence refs
-    /// (#357/#359).
+    /// (legacy bolph71656-ai/HTDT-Capture#357/legacy bolph71656-ai/HTDT-Capture#359).
     var taskPlanStatus: Binding<CaptureTaskPlanStatus>?
     /// Catalog entries + label-scan assist feeding the rack-inventory
-    /// workflow (#402); empty/nil degrade it to manual entry.
+    /// workflow (legacy bolph71656-ai/HTDT-Capture#402); empty/nil degrade it to manual entry.
     var equipmentCatalogEntries: [HTDTEquipmentCatalogEntry] = []
     var equipmentRecents = EquipmentRecents()
     var scanEquipmentLabel:
@@ -175,7 +175,7 @@ struct TheaterAuthoritySection: View {
         }
     }
 
-    /// Human-term grouping for the staged record list (#357).
+    /// Human-term grouping for the staged record list (legacy bolph71656-ai/HTDT-Capture#357).
     enum RecordGroup: String, CaseIterable, Identifiable {
         case roomAndSurfaces
         case roomState
@@ -303,7 +303,7 @@ struct TheaterAuthoritySection: View {
         }
     }
 
-    // MARK: Mission tasks (#357/#359)
+    // MARK: Mission tasks (legacy bolph71656-ai/HTDT-Capture#357/legacy bolph71656-ai/HTDT-Capture#359)
 
     @ViewBuilder private var missionRows: some View {
         if let status = taskPlanStatus {
@@ -518,7 +518,7 @@ struct TheaterAuthoritySection: View {
         }
     }
 
-    // MARK: Object-context flows (#357)
+    // MARK: Object-context flows (legacy bolph71656-ai/HTDT-Capture#357)
 
     @ViewBuilder private var objectRows: some View {
         if !entities.isEmpty {
@@ -548,7 +548,7 @@ struct TheaterAuthoritySection: View {
     }
 
     /// Record kinds an entity of this type can plausibly host — the
-    /// contextual entry the flat list used to flatten away (#357).
+    /// contextual entry the flat list used to flatten away (legacy bolph71656-ai/HTDT-Capture#357).
     private func objectKinds(
         for type: AnnotationEntityType
     ) -> [AuthorityKind] {
@@ -694,7 +694,7 @@ struct TheaterAuthoritySection: View {
         .joined(separator: " · ")
     }
 
-    // MARK: Advanced raw list (#357)
+    // MARK: Advanced raw list (legacy bolph71656-ai/HTDT-Capture#357)
 
     private var advancedRows: some View {
         DisclosureGroup(
@@ -927,7 +927,7 @@ struct TheaterAuthoritySection: View {
 
     /// Removes a staged record; the collection's validating init makes
     /// a record still referenced elsewhere refuse deletion rather than
-    /// strand the referencing record (#357).
+    /// strand the referencing record (legacy bolph71656-ai/HTDT-Capture#357).
     private func removeRecord(
         _ descriptor: AuthorityRecordDescriptor
     ) {
@@ -1191,7 +1191,7 @@ struct TheaterAuthoritySection: View {
 
 /// The staged record produced by an add/edit sheet. `apply` is an
 /// upsert keyed on the record's own identity so edits stay correctable
-/// (#357); `removed` rebuilds without the record so the validating
+/// (legacy bolph71656-ai/HTDT-Capture#357); `removed` rebuilds without the record so the validating
 /// collection init still refuses a delete that would strand a
 /// cross-reference.
 enum AuthorityRecordDraft: Identifiable {
@@ -1269,7 +1269,7 @@ enum AuthorityRecordDraft: Identifiable {
         }
     }
 
-    /// Human-facing label for undo/error affordances (#357).
+    /// Human-facing label for undo/error affordances (legacy bolph71656-ai/HTDT-Capture#357).
     var title: String {
         switch self {
         case .surfaceSemantics(let record):
@@ -1306,7 +1306,7 @@ enum AuthorityRecordDraft: Identifiable {
     }
 
     /// Resolves a descriptor back to a full draft so records are
-    /// inspectable/editable and deletions are undoable (#357).
+    /// inspectable/editable and deletions are undoable (legacy bolph71656-ai/HTDT-Capture#357).
     init?(
         descriptor: AuthorityRecordDescriptor,
         in collection: TheaterAuthorityCollection
@@ -1573,7 +1573,7 @@ enum AuthorityRecordDraft: Identifiable {
             sections.inventoryItems.removeAll {
                 $0.itemID == recordID
             }
-            // A placement cannot outlive the unit it describes (#402).
+            // A placement cannot outlive the unit it describes (legacy bolph71656-ai/HTDT-Capture#402).
             sections.rackPlacements.removeAll {
                 $0.itemID == recordID
             }
@@ -1674,7 +1674,7 @@ private struct EntityPicker: View {
 /// One add/edit-sheet per authority kind; all record validation lives
 /// in the model initializers so the form stays a thin staging surface.
 /// `editing` seeds the fields from an existing record so the record
-/// stays correctable before Save (#357); `prefilledEntityID` carries
+/// stays correctable before Save (legacy bolph71656-ai/HTDT-Capture#357); `prefilledEntityID` carries
 /// the object-context selection into the matching pickers.
 private struct AuthorityRecordForm: View {
     let kind: TheaterAuthoritySection.AuthorityKind
@@ -1685,23 +1685,23 @@ private struct AuthorityRecordForm: View {
     let roomPlanSurfaces: [CapturedSurfaceOption]
     let meshAnchors: [CapturedSurfaceOption]
     let authorities: TheaterAuthorityCollection
-    /// Design targets for placement-verification records (#346).
+    /// Design targets for placement-verification records (legacy bolph71656-ai/HTDT-Capture#346).
     let plannedTargets: [PlannedAsBuiltSpec]
     /// Proven plan alignment the session established, when any.
     let establishedAlignment: PlanAlignmentAuthority?
     /// Existing record being edited — nil means a new record.
     let editing: AuthorityRecordDraft?
-    /// Entity the flow was opened from (object-context entry, #357).
+    /// Entity the flow was opened from (object-context entry, legacy bolph71656-ai/HTDT-Capture#357).
     let prefilledEntityID: AnnotationEntityID?
     /// Mission task label this record answers to, when opened from a
-    /// semantic plan item (#357/#359).
+    /// semantic plan item (legacy bolph71656-ai/HTDT-Capture#357/legacy bolph71656-ai/HTDT-Capture#359).
     let missionLabel: String?
     let onProduce: (AuthorityRecordDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var seeded = false
 
-    // Shared surface-binding fields (#218 family).
+    // Shared surface-binding fields (legacy bolph71656-ai/HTDT-Capture#218 family).
     @State private var roomPlanSurfaceID = ""
     @State private var roomPlanObjectID = ""
     @State private var meshAnchorText = ""
@@ -1799,7 +1799,7 @@ private struct AuthorityRecordForm: View {
     @State private var facingAzimuth = ""
     @State private var facingElevation = ""
 
-    // Routing verification (#316).
+    // Routing verification (legacy bolph71656-ai/HTDT-Capture#316).
     @State private var channelRoleText = ""
     @State private var outputLabelText = ""
     @State private var sourceItemSelection: AuthorityRecordID?
@@ -1812,7 +1812,7 @@ private struct AuthorityRecordForm: View {
     @State private var deviceContextText = ""
     @State private var supersedesSelection: AuthorityRecordID?
 
-    // Projector commissioning (#335).
+    // Projector commissioning (legacy bolph71656-ai/HTDT-Capture#335).
     @State private var projectorEntitySelection: AnnotationEntityID?
     @State private var lensCenterEntitySelection: AnnotationEntityID?
     @State private var mountOrientationChoice = "not_recorded"
@@ -1829,7 +1829,7 @@ private struct AuthorityRecordForm: View {
     @State private var plannedSpecRefText = ""
     @State private var screenAuthoritySelection: AuthorityRecordID?
 
-    // Install alignment assist (#346).
+    // Install alignment assist (legacy bolph71656-ai/HTDT-Capture#346).
     @State private var alignmentTargetID = ""
     @State private var alignmentTargetType:
         AnnotationEntityType = .speaker
@@ -1853,7 +1853,7 @@ private struct AuthorityRecordForm: View {
         Form {
             missionBanner
             if usesBinding {
-                // #365: the primary path binds the record to a
+                // legacy bolph71656-ai/HTDT-Capture#365: the primary path binds the record to a
                 // captured object by its human label; raw lineage
                 // tokens stay one disclosure away.
                 Section("Target surface") {
@@ -1963,7 +1963,7 @@ private struct AuthorityRecordForm: View {
             }
 
             if let errorText {
-                // #365: a concise advisory up top; the raw error
+                // legacy bolph71656-ai/HTDT-Capture#365: a concise advisory up top; the raw error
                 // description stays under technical detail.
                 Section {
                     CaptureNotice(
@@ -2013,7 +2013,7 @@ private struct AuthorityRecordForm: View {
     }
 
     /// The mission task this sheet answers, shown so the operator sees
-    /// which plan item the record will fulfill (#357).
+    /// which plan item the record will fulfill (legacy bolph71656-ai/HTDT-Capture#357).
     @ViewBuilder private var missionBanner: some View {
         if let missionLabel {
             Section(String(localized: "Mission task")) {
@@ -2726,7 +2726,7 @@ private struct AuthorityRecordForm: View {
         }
     }
 
-    // MARK: Routing verification (#316)
+    // MARK: Routing verification (legacy bolph71656-ai/HTDT-Capture#316)
 
     private var routingVerificationSection: some View {
         Group {
@@ -2911,7 +2911,7 @@ private struct AuthorityRecordForm: View {
         }
     }
 
-    // MARK: Projector commissioning (#335)
+    // MARK: Projector commissioning (legacy bolph71656-ai/HTDT-Capture#335)
 
     private var projectorCommissioningSection: some View {
         Group {
@@ -3060,7 +3060,7 @@ private struct AuthorityRecordForm: View {
         }
     }
 
-    // MARK: Install alignment assist (#346)
+    // MARK: Install alignment assist (legacy bolph71656-ai/HTDT-Capture#346)
 
     private var installationAlignmentSection: some View {
         Group {
@@ -3270,7 +3270,7 @@ private struct AuthorityRecordForm: View {
 
     /// Live preview of the deviation the record would store — only
     /// computable under spatial guidance with a proven alignment
-    /// (#346); textual guidance never shows metric deltas.
+    /// (legacy bolph71656-ai/HTDT-Capture#346); textual guidance never shows metric deltas.
     private var liveDeviation: AsBuiltDeviation? {
         try? deviationPreview(alignment: try? buildAlignment())
     }
@@ -3328,7 +3328,7 @@ private struct AuthorityRecordForm: View {
 
     /// The attested alignment the record runs under — the session's
     /// established authority when chosen, else the manually surveyed
-    /// translation entered here. nil for textual guidance (#346).
+    /// translation entered here. nil for textual guidance (legacy bolph71656-ai/HTDT-Capture#346).
     private func buildAlignment() throws -> PlanAlignmentAuthority? {
         guard guidanceMode == .spatialDelta else { return nil }
         if useEstablishedAlignment, let establishedAlignment {
@@ -3364,7 +3364,7 @@ private struct AuthorityRecordForm: View {
 
     /// Deviation of the final entity from the planned pose, through
     /// the alignment — only computable once target, alignment, and
-    /// final entity are all known (#346).
+    /// final entity are all known (legacy bolph71656-ai/HTDT-Capture#346).
     private func deviationPreview(
         alignment: PlanAlignmentAuthority?
     ) throws -> AsBuiltDeviation? {
@@ -3392,7 +3392,7 @@ private struct AuthorityRecordForm: View {
         )
     }
 
-    // MARK: Editing/prefill seed (#357)
+    // MARK: Editing/prefill seed (legacy bolph71656-ai/HTDT-Capture#357)
 
     private func seedIfNeeded() {
         guard !seeded else { return }
@@ -4286,7 +4286,7 @@ struct EvidenceReferenceSelector: View {
     }
 }
 
-/// Form-side state of one attested-optics field (#335): not recorded,
+/// Form-side state of one attested-optics field (legacy bolph71656-ai/HTDT-Capture#335): not recorded,
 /// an attested value (text and/or numeric), or an explicit unknown.
 private struct SettingEntry: Equatable {
     enum State: Equatable {
@@ -4301,7 +4301,7 @@ private struct SettingEntry: Equatable {
 
 /// `AttestedSettingValue` editor — the operator either attests a value
 /// or records an explicit `unknown`; a missing entry stays nil so a
-/// planned value never silently becomes installed truth (#335).
+/// planned value never silently becomes installed truth (legacy bolph71656-ai/HTDT-Capture#335).
 private struct AttestedSettingEditor: View {
     let title: String
     @Binding var entry: SettingEntry
@@ -4340,7 +4340,7 @@ private struct AttestedSettingEditor: View {
     }
 }
 
-/// Read-only inspection of one staged authority record (#357) —
+/// Read-only inspection of one staged authority record (legacy bolph71656-ai/HTDT-Capture#357) —
 /// human-term rows plus Edit/Delete so a staged record is correctable
 /// before the workspace's canonical Save.
 private struct AuthorityRecordDetailView: View {

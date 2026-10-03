@@ -13,7 +13,7 @@ private func makeTemporaryDirectory() throws -> URL {
 /// (top-left of `capturedImage`) -> Vision normalized (bottom-left).
 /// These fixtures model the aspect-fill display transforms ARKit emits
 /// for a 1920x1440 camera image presented in each supported
-/// orientation — the correctness anchor of #269's "explicit authority".
+/// orientation — the correctness anchor of legacy bolph71656-ai/HTDT-Capture#269's "explicit authority".
 
 /// Image space is wider than the view in portrait: the display
 /// transform is a rotation-free scale+crop (the horizontal band

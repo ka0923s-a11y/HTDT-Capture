@@ -2,7 +2,7 @@
 
 Status: implemented as a GitHub-verifiable integration slice; physical-device behavior remains unverified.
 
-Related issues: #2, #3, #4, #6, #9
+Related issues: legacy bolph71656-ai/HTDT-Capture#2, legacy bolph71656-ai/HTDT-Capture#3, legacy bolph71656-ai/HTDT-Capture#4, legacy bolph71656-ai/HTDT-Capture#6, legacy bolph71656-ai/HTDT-Capture#9
 
 ## Purpose
 
@@ -128,7 +128,7 @@ paths exist depending on how far the capture got: a mid-scan
 (`live_scan_incomplete`) failure can only be inspected/exported for
 diagnostics or discarded, while a working set that was already accepted by End
 may be preserved as a recoverable draft and reopened later as a sealed
-Review (#297/#437). Live capture never resumes in either case; a fresh
+Review (legacy bolph71656-ai/HTDT-Capture#297/legacy bolph71656-ai/HTDT-Capture#437). Live capture never resumes in either case; a fresh
 capture starts a new coordinate authority.
 
 The same rule covers the End transaction window: an interruption between End
@@ -140,7 +140,7 @@ payload set landed, the revision is not reopenable because its coordinate
 authority died with the process. The one exception is the marker-flip gap:
 a `live_scan_incomplete` marker beside the complete durable End payload set
 is a recoverable draft — restore reopens it as a sealed Review and heals
-the marker to `end_accepted` (#297).
+the marker to `end_accepted` (legacy bolph71656-ai/HTDT-Capture#297).
 
 This is deliberately fail-closed. Same-session resume or relocalization must
 only be added after a concrete mechanism (for example an independently verified
@@ -166,7 +166,7 @@ implemented and unit-tested; what remains is proving them on real hardware:
 - physical-device interruption/background acceptance and future proven
   relocalization/resume behavior;
 - thermal/storage/persistence-pressure acceptance on physical devices;
-- physical accuracy benchmark under Issue #9.
+- physical accuracy benchmark under Issue bolph71656-ai/HTDT-Capture#9.
 
 No capability or accuracy claim is promoted from a successful build.
 

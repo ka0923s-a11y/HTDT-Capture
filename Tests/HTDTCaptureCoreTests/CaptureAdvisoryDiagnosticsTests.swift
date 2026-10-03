@@ -51,7 +51,7 @@ private func advisoryDistanceMeasurement(
     )
 }
 
-// MARK: - Task completeness (#259/#217)
+// MARK: - Task completeness (legacy bolph71656-ai/HTDT-Capture#259/legacy bolph71656-ai/HTDT-Capture#217)
 
 @Test
 func taskCompletenessWithoutProfileIsExplicit() {
@@ -357,7 +357,7 @@ func duplicateRecordsDoNotSatisfyUnrelatedRequirements() throws {
     #expect(!report.overallSatisfied)
 }
 
-// MARK: - Conflict analysis (#229)
+// MARK: - Conflict analysis (legacy bolph71656-ai/HTDT-Capture#229)
 
 @Test
 func conflictAnalysisUnavailableWhenCollectionsMissing() throws {
@@ -518,7 +518,7 @@ func roomPlanDimensionDisagreementIsSurfaced() throws {
     #expect(disagreements.first?.candidates.count == 2)
 }
 
-// MARK: - RoomPlan ↔ mesh consistency (#277)
+// MARK: - RoomPlan ↔ mesh consistency (legacy bolph71656-ai/HTDT-Capture#277)
 
 private func simpleMeshGeometry(
     classification: UInt8 = 1
@@ -567,7 +567,7 @@ func meshConsistencyAbsentVsSharedAuthority() throws {
         roomPlanCoordinateSpaceID: CoordinateSpaceID()
     )
     // Different coordinate authority: analysis refuses to compare
-    // instead of guessing (#277).
+    // instead of guessing (legacy bolph71656-ai/HTDT-Capture#277).
     #expect(unshared.status == .authorityUnshared)
 
     let analyzed = RoomPlanMeshConsistencyAnalyzer.analyze(
@@ -583,7 +583,7 @@ func meshConsistencyAbsentVsSharedAuthority() throws {
     #expect(analyzed.wallFaceCount == 1)
 }
 
-// MARK: - Benchmark binding (#285)
+// MARK: - Benchmark binding (legacy bolph71656-ai/HTDT-Capture#285)
 
 @Test
 func benchmarkReferenceValidationEnforcesImmutability() {
@@ -661,7 +661,7 @@ func benchmarkCompatibilityPredicatesAllMustMatch() {
 func benchmarkAuthorityEmptyByDefault() {
     #expect(BenchmarkReferenceAuthority.publishedRules.isEmpty)
     // With no published rules a production capture binds an explicit
-    // empty list rather than inheriting stale evidence (#285).
+    // empty list rather than inheriting stale evidence (legacy bolph71656-ai/HTDT-Capture#285).
     #expect(
         BenchmarkReferenceAuthority.compatibleReferences(
             context: BenchmarkBindingContext(
@@ -676,7 +676,7 @@ func benchmarkAuthorityEmptyByDefault() {
     )
 }
 
-// MARK: - RoomPlan guidance history (#260)
+// MARK: - RoomPlan guidance history (legacy bolph71656-ai/HTDT-Capture#260)
 
 @Test
 func guidanceTrackerDeduplicatesConsecutiveInstructions() {
@@ -732,7 +732,7 @@ func guidanceTrackerBoundsHistory() {
     #expect(history.truncated)
 }
 
-// MARK: - Mesh lifecycle diagnostics (#268)
+// MARK: - Mesh lifecycle diagnostics (legacy bolph71656-ai/HTDT-Capture#268)
 
 @Test
 func meshLifecycleTrackerSummarizesStability() {
@@ -757,7 +757,7 @@ func meshLifecycleTrackerSummarizesStability() {
     #expect(summary.anchorsNeverUpdatedCount == 1)
 }
 
-// MARK: - Depth sufficiency (#284)
+// MARK: - Depth sufficiency (legacy bolph71656-ai/HTDT-Capture#284)
 
 @Test
 func depthAccumulatorCountsValidAndConfidentSamples() throws {
@@ -788,7 +788,7 @@ func depthAccumulatorCountsValidAndConfidentSamples() throws {
 @Test
 func depthSufficiencyPolicyRejectsSinglePixel() throws {
     var accumulator = DepthSufficiencyAccumulator()
-    // One valid pixel in a 10x10 frame — the pre-#284 floor.
+    // One valid pixel in a 10x10 frame — the pre-legacy bolph71656-ai/HTDT-Capture#284 floor.
     accumulator.record(
         depth: try DepthMapPayload(
             width: 10,
@@ -825,7 +825,7 @@ func depthSufficiencyPolicyRejectsLowConfidenceOnly() throws {
     #expect(failures.contains(.confidentFractionBelowMinimum))
 }
 
-// MARK: - Store integration (#223, #285, #259)
+// MARK: - Store integration (legacy bolph71656-ai/HTDT-Capture#223, legacy bolph71656-ai/HTDT-Capture#285, legacy bolph71656-ai/HTDT-Capture#259)
 
 private func advisoryFramePackage() throws -> FrameEvidencePackage {
     let frameID = EvidenceFrameID()
@@ -924,7 +924,7 @@ func sealedWorkingSetPersistsAdvisoryPayload() async throws {
         )
     )
     // Commit both authority collections so conflict analysis is
-    // analyzed-empty rather than unavailable (#229).
+    // analyzed-empty rather than unavailable (legacy bolph71656-ai/HTDT-Capture#229).
     try await store.persistMeasurementPackage(
         try MeasurementEvidencePackageBuilder.build(measurements: [])
     )
@@ -945,7 +945,7 @@ func sealedWorkingSetPersistsAdvisoryPayload() async throws {
         )
     )
     #expect(sealed.qualityReport.readyForHTDTIngestion)
-    // #285: bound refs flow into the canonical quality report.
+    // legacy bolph71656-ai/HTDT-Capture#285: bound refs flow into the canonical quality report.
     #expect(
         sealed.qualityReport.benchmarkRefs
             == ["htdt.benchmark.fixture@1.0.0"]
@@ -1027,7 +1027,7 @@ func advisoryEvaluationBeforeSealReflectsRecordedState() async throws {
     )
     #expect(advisory.taskCompleteness?.overallSatisfied == true)
     // RoomPlan guidance defaults to an explicit unavailable source
-    // rather than looking like a clean session (#260).
+    // rather than looking like a clean session (legacy bolph71656-ai/HTDT-Capture#260).
     #expect(advisory.roomPlanGuidance?.source == .unavailable)
 }
 

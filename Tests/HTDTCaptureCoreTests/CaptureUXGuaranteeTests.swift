@@ -2,12 +2,12 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Regression coverage for the capture-UX issue batch:
-/// #295 permission-gate recovery, #336 coverage-capacity
-/// observability, #347 global (viewport-independent) guidance
-/// completeness, and #343 start-relative direction conventions.
+/// legacy bolph71656-ai/HTDT-Capture#295 permission-gate recovery, legacy bolph71656-ai/HTDT-Capture#336 coverage-capacity
+/// observability, legacy bolph71656-ai/HTDT-Capture#347 global (viewport-independent) guidance
+/// completeness, and legacy bolph71656-ai/HTDT-Capture#343 start-relative direction conventions.
 final class CaptureUXGuaranteeTests: XCTestCase {
 
-    // MARK: #295 — permission gate is a recoverable state
+    // MARK: legacy bolph71656-ai/HTDT-Capture#295 — permission gate is a recoverable state
 
     func testPermissionsGateResetsToIdleWithoutFailure() throws {
         var machine = CaptureStateMachine(state: .permissions)
@@ -33,7 +33,7 @@ final class CaptureUXGuaranteeTests: XCTestCase {
         var machine = CaptureStateMachine(state: .permissions)
         try machine.apply(.reset)
         // A cancelled permission gate must never surface as a failed
-        // capture (#295): no failure code, no `.failed` state.
+        // capture (legacy bolph71656-ai/HTDT-Capture#295): no failure code, no `.failed` state.
         XCTAssertNotEqual(machine.state, .failed)
         XCTAssertNil(machine.lastFailure)
     }
@@ -43,7 +43,7 @@ final class CaptureUXGuaranteeTests: XCTestCase {
         XCTAssertThrowsError(try machine.apply(.reset))
     }
 
-    // MARK: #336 — capacity eviction is never silent
+    // MARK: legacy bolph71656-ai/HTDT-Capture#336 — capacity eviction is never silent
 
     func testDefaultCoverageBudgetIsLargerThanLegacy() {
         // The legacy 256-cell budget forgot completed regions on an
@@ -251,7 +251,7 @@ final class CaptureUXGuaranteeTests: XCTestCase {
         XCTAssertEqual(summary.capacity.regionEntryCount, 10)
     }
 
-    // MARK: #347 — completeness is global, not viewport-local
+    // MARK: legacy bolph71656-ai/HTDT-Capture#347 — completeness is global, not viewport-local
 
     func testRemoteWeakRegionIsCountedOutsideDisplayWindow() {
         let tracker = ScanMotionGuidanceTracker()
@@ -362,7 +362,7 @@ final class CaptureUXGuaranteeTests: XCTestCase {
         XCTAssertEqual(progress.actionableWeakRegionCount, 0)
     }
 
-    // MARK: #343 — direction labels are start-relative
+    // MARK: legacy bolph71656-ai/HTDT-Capture#343 — direction labels are start-relative
 
     func testOctantMappingCoversAllEightDirections() {
         XCTAssertEqual(
@@ -466,14 +466,14 @@ final class CaptureUXGuaranteeTests: XCTestCase {
     func testDirectionConventionIdentifierIsStable() {
         // Persisted advisory payloads record the convention; the
         // identifier is contractual so consumers can distinguish it
-        // from a future room-relative authority (#232).
+        // from a future room-relative authority (legacy bolph71656-ai/HTDT-Capture#232).
         XCTAssertEqual(
             StartRelativeDirection.convention,
             "start_relative"
         )
     }
 
-    // MARK: persisted advisory back-compat (#336/#343/#347)
+    // MARK: persisted advisory back-compat (legacy bolph71656-ai/HTDT-Capture#336/legacy bolph71656-ai/HTDT-Capture#343/legacy bolph71656-ai/HTDT-Capture#347)
 
     func testEndCoverageSummaryDecodesPreChangePayload() throws {
         // A v1.0.0 advisory written before the scope/capacity/

@@ -1,7 +1,7 @@
 import Foundation
 
 /// A RoomPlan-recognized object or surface an annotation can bind to
-/// (#246). Decoded from the persisted processed `CapturedRoom`
+/// (legacy bolph71656-ai/HTDT-Capture#246). Decoded from the persisted processed `CapturedRoom`
 /// (`roomplan/captured-room.json`) by the platform layer; identity is
 /// the RoomPlan object/surface identifier, never re-derived here.
 public struct RoomPlanBindableObject: Sendable, Equatable, Identifiable {
@@ -123,7 +123,7 @@ public struct RoomPlanObjectHit: Sendable, Equatable {
     }
 }
 
-/// Nearest-hit raycasting over the bindable RoomPlan object set (#246).
+/// Nearest-hit raycasting over the bindable RoomPlan object set (legacy bolph71656-ai/HTDT-Capture#246).
 /// The hit position anchors the annotation; the object's stable
 /// identifier populates `source_roomplan_object_id` so the binding is
 /// auditable against the persisted `CapturedRoom`.

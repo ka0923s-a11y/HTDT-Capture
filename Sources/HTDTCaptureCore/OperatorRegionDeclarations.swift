@@ -1,6 +1,6 @@
 import Foundation
 
-/// Operator-declared coverage exceptions (#257).
+/// Operator-declared coverage exceptions (legacy bolph71656-ai/HTDT-Capture#257).
 ///
 /// Real rooms contain regions the operator deliberately cannot
 /// resolve — behind fixed cabinets, unsafe areas, intentionally

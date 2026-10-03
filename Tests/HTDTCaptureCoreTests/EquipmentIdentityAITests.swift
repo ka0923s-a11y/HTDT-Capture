@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #270 multimodal equipment-identity assistant — deterministic core:
+// legacy bolph71656-ai/HTDT-Capture#270 multimodal equipment-identity assistant — deterministic core:
 // bounded context, prompt composition, validator grounding, and the
 // typed advisory outcome. The Foundation Models lane itself is
 // availability-gated and never exercised here (Simulator/ineligible

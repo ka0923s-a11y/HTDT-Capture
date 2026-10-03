@@ -1,7 +1,7 @@
 import Foundation
 
-/// The field-authority commit surface (issues #300/#301/#310/#314/
-/// #324/#331): the five derived documents this family introduces, plus
+/// The field-authority commit surface (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/
+/// legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331): the five derived documents this family introduces, plus
 /// the binary asset payloads field-evidence records own, staged for a
 /// single atomic `CaptureWorkingSetStore` commit. Every member is
 /// optional — a commit only replaces the documents it carries, so
@@ -13,7 +13,7 @@ public struct FieldAuthorityBundle: Sendable, Equatable {
     public let instruments: InstrumentProfilePackage?
     public let settings: InstalledSettingsPackage?
     public let wiring: AsBuiltWiringPackage?
-    /// #227: fiducial/reference-target capture document — declared
+    /// legacy bolph71656-ai/HTDT-Capture#227: fiducial/reference-target capture document — declared
     /// targets plus their evidence-linked observations.
     public let referenceTargets: ReferenceTargetCapturePackage?
     /// Binary assets (captured close-ups / imported files) to write —
@@ -377,7 +377,7 @@ private extension String {
 }
 
 /// Bytes of a close-up photo captured for a field-evidence record
-/// (issue #314). The photo is image evidence only — it carries no
+/// (issue bolph71656-ai/HTDT-Capture#314). The photo is image evidence only — it carries no
 /// frame descriptor, coordinate space, or pose, so it can never be
 /// confused with a spatial AR frame.
 public struct CapturedFieldPhoto: Sendable, Equatable {
@@ -418,22 +418,22 @@ public struct StagedFieldAsset: Codable, Sendable, Equatable {
     }
 }
 
-/// The workspace's staged field-authority state (issues #300/#301/
-/// #310/#314/#324/#331): everything the operator authored in the
+/// The workspace's staged field-authority state (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/
+/// legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331): everything the operator authored in the
 /// annotation workspace beyond the canonical entity/measurement/
 /// authority collections. Persisted in the app-private autosave draft
 /// and committed to derived documents on Save.
 public struct FieldAuthorityWorkspace: Codable, Sendable, Equatable {
     public var operatorProfiles: [OperatorProfile]
     /// The operator identity stamped onto newly authored records
-    /// (issue #310); nil means anonymous — never fabricated.
+    /// (issue bolph71656-ai/HTDT-Capture#310); nil means anonymous — never fabricated.
     public var selectedOperatorID: OperatorProfileID?
     public var fieldEvidence: [FieldEvidenceRecord]
     public var fieldEvidenceAssets: [StagedFieldAsset]
     public var instruments: [MeasurementInstrumentProfile]
     public var settingsObservations: [InstalledSettingsObservation]
     public var wiringRoutes: [AsBuiltWiringRoute]
-    /// #227: declared fiducial/reference targets and their
+    /// legacy bolph71656-ai/HTDT-Capture#227: declared fiducial/reference targets and their
     /// observations — staged with the rest of the field bag so a
     /// draft round-trips them. Optional so drafts authored before
     /// targets existed still decode.

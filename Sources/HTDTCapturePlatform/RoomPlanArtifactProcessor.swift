@@ -4,7 +4,7 @@ import HTDTCaptureCore
 #if os(iOS) && canImport(RoomPlan)
 import RoomPlan
 
-/// RoomPlan completion post-processing for the End transaction (#208).
+/// RoomPlan completion post-processing for the End transaction (legacy bolph71656-ai/HTDT-Capture#208).
 ///
 /// `CapturedRoomData` and `CapturedRoom` are Sendable value types, so
 /// the JSON materialization, SHA-256 hashing and descriptor/lineage
@@ -17,7 +17,7 @@ import RoomPlan
 /// No RoomPlan view/session object crosses the boundary — only the
 /// Sendable result data — and the completion path is serialized by the
 /// host's `roomPlanCompletionInFlight` guard, so off-actor work cannot
-/// queue unboundedly (#147 backpressure contract). Canonical bytes and
+/// queue unboundedly (legacy bolph71656-ai/HTDT-Capture#147 backpressure contract). Canonical bytes and
 /// lineage are identical to the previous synchronous MainActor output.
 public enum RoomPlanArtifactProcessor {
     /// Encodes the raw `CapturedRoomData` payload and builds its

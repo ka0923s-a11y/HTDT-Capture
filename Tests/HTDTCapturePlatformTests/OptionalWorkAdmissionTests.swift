@@ -57,7 +57,7 @@ private let criticalWork = OptionalWorkload(
     workloadClass: .captureCritical
 )
 
-// MARK: - Pressure derivation (#273)
+// MARK: - Pressure derivation (legacy bolph71656-ai/HTDT-Capture#273)
 
 @Test
 func nominalHealthIsNominal() {
@@ -75,7 +75,7 @@ func thermalBandsMapMonotonically() {
 func storageBandsMap() {
     #expect(health(storage: .warning).pressureState == .elevated)
     #expect(health(storage: .critical).pressureState == .critical)
-    // Undetermined capacity is not proof of headroom (#181).
+    // Undetermined capacity is not proof of headroom (legacy bolph71656-ai/HTDT-Capture#181).
     #expect(health(storage: .undetermined).pressureState == .elevated)
 }
 
@@ -117,7 +117,7 @@ func worstSignalWins() {
     #expect(combined.pressureState == .serious)
 }
 
-// MARK: - Phase decision table (#273 Stage 1 rules)
+// MARK: - Phase decision table (legacy bolph71656-ai/HTDT-Capture#273 Stage 1 rules)
 
 @Test
 func captureCriticalIsNeverGated() {
@@ -669,7 +669,7 @@ func phaseMappingFromCaptureState() {
 
 @Test
 func registeredWorkloadsMatchIssueAuditBounds() {
-    // #273 audit: the workloads the repo owns plus the ones sibling
+    // legacy bolph71656-ai/HTDT-Capture#273 audit: the workloads the repo owns plus the ones sibling
     // issues declare — bounded ones are one-shot/periodic, only
     // reference tracking and the Core AI prototype are continuous.
     let registry: [OptionalWorkload] = [

@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #202: session/coordinate identity is part of the logical
+/// Issue bolph71656-ai/HTDT-Capture#202: session/coordinate identity is part of the logical
 /// persistence commit. A failed durable write must leave the working
 /// set's authority exactly as it was — no ghost binding — and a
 /// successful commit publishes the binding exactly once alongside its
@@ -516,7 +516,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
     /// Two reentrant transactions proposing different authorities can
     /// race the durable commit. Exactly one may win; the loser's
     /// failure must never roll back or overwrite the committed
-    /// authority (issue #202).
+    /// authority (issue bolph71656-ai/HTDT-Capture#202).
     func testReentrantConflictingFoundationsPublishExactlyOneAuthority()
         async throws
     {

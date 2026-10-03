@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the retention preview recommends for one revision (issue
-/// #394). "Keep latest only" is never an automatic policy: the newest
+/// legacy bolph71656-ai/HTDT-Capture#394). "Keep latest only" is never an automatic policy: the newest
 /// revision and marked revisions recommend `keep`, older unmarked
 /// revisions recommend `deleteCandidate` so the operator reviews them
 /// one preview at a time.
@@ -14,7 +14,7 @@ public enum CaptureRetentionRecommendation:
     case deleteCandidate = "delete_candidate"
 }
 
-/// Hard blocks on deleting a revision (issue #394). A blocked
+/// Hard blocks on deleting a revision (issue bolph71656-ai/HTDT-Capture#394). A blocked
 /// revision is skipped rather than deleted — the preview names the
 /// reason so the operator can resolve it explicitly.
 public enum CaptureRetentionBlocker:
@@ -29,7 +29,7 @@ public enum CaptureRetentionBlocker:
     case protectedMark
 }
 
-/// Advisory context shown alongside a deletion preview (issue #394):
+/// Advisory context shown alongside a deletion preview (issue bolph71656-ai/HTDT-Capture#394):
 /// the deletion may proceed, but the operator sees exactly what the
 /// bytes leaving local storage imply.
 public enum CaptureRetentionWarning:
@@ -51,7 +51,7 @@ public enum CaptureRetentionWarning:
     case onlyLocalCopy
 }
 
-/// One revision's row inside a series retention preview (issue #394):
+/// One revision's row inside a series retention preview (issue bolph71656-ai/HTDT-Capture#394):
 /// the bytes it holds, the marks protecting it, the recommendation,
 /// and every blocker and warning the deletion flow must respect.
 public struct CaptureRevisionRetentionRow:
@@ -66,7 +66,7 @@ public struct CaptureRevisionRetentionRow:
     public let finalizedByteCount: Int64
     /// Derived `.htdtcapture` archive bytes — listed separately so
     /// "delete derived archives only" is always the safest first
-    /// suggestion (#251/#394).
+    /// suggestion (legacy bolph71656-ai/HTDT-Capture#251/legacy bolph71656-ai/HTDT-Capture#394).
     public let archiveByteCount: Int64
     public let isLatest: Bool
     public let mark: CaptureRevisionMark
@@ -103,7 +103,7 @@ public struct CaptureRevisionRetentionRow:
     }
 }
 
-/// The full retention picture of one series (issue #394): every
+/// The full retention picture of one series (issue bolph71656-ai/HTDT-Capture#394): every
 /// revision row plus the byte totals, so the preview can name what
 /// stays and what could leave before any delete action exists.
 public struct CaptureSeriesRetentionPreview:
@@ -146,7 +146,7 @@ public struct CaptureSeriesRetentionPreview:
 }
 
 /// The preview a series delete or any chosen-revisions delete renders
-/// before anything is removed (issue #394): revision count, the two
+/// before anything is removed (issue bolph71656-ai/HTDT-Capture#394): revision count, the two
 /// byte classes, per-revision outcomes with blockers and warnings,
 /// and provenance notes (imported vs. local origin).
 public struct CaptureLibraryDeletionPreview:
@@ -261,7 +261,7 @@ public struct CaptureSeriesDeletionResult:
     }
 }
 
-/// The retention planner (issue #394): dependency-aware previews and
+/// The retention planner (issue bolph71656-ai/HTDT-Capture#394): dependency-aware previews and
 /// the series delete executor. All classification is derived from the
 /// validated inventory and the durable ledgers — never from file
 /// names — and deleting a parent never rewrites a child's lineage.
@@ -269,7 +269,7 @@ public enum CaptureLibraryRetentionPlanner {
     /// Per-revision retention rows for one series: latest revision
     /// and marked revisions keep; everything older and unmarked is a
     /// delete candidate the operator reviews — there is no "keep
-    /// latest only" mode (#394).
+    /// latest only" mode (legacy bolph71656-ai/HTDT-Capture#394).
     public static func seriesPreview(
         seriesID: CaptureSeriesID,
         records: [PersistedCaptureRecord],
@@ -321,7 +321,7 @@ public enum CaptureLibraryRetentionPlanner {
 
     /// The deletion preview for a chosen set of revisions — the
     /// series-delete confirmation and any chosen-revision cleanup
-    /// both render from this (issue #394).
+    /// both render from this (issue bolph71656-ai/HTDT-Capture#394).
     public static func deletionPreview(
         records: [PersistedCaptureRecord],
         allRecords: [PersistedCaptureRecord],
@@ -371,7 +371,7 @@ public enum CaptureLibraryRetentionPlanner {
         )
     }
 
-    /// Dependency-aware series delete (issue #394): every revision
+    /// Dependency-aware series delete (issue bolph71656-ai/HTDT-Capture#394): every revision
     /// runs the same preview rules; blocked revisions are skipped and
     /// reported, deletable revisions go through the inventory's own
     /// identity-reconfirming removal. Metadata for deleted revisions

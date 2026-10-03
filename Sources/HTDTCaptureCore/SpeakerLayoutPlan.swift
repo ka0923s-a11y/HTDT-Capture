@@ -1,6 +1,6 @@
 import Foundation
 
-/// One role in a guided speaker-layout capture plan (#278). Roles come
+/// One role in a guided speaker-layout capture plan (legacy bolph71656-ai/HTDT-Capture#278). Roles come
 /// from an explicit plan — a named preset the operator selected, or a
 /// task/profile supplied list — never an assumed fixed layout.
 public struct SpeakerLayoutRole: Codable, Sendable, Equatable, Identifiable {
@@ -51,7 +51,7 @@ public struct SpeakerLayoutRole: Codable, Sendable, Equatable, Identifiable {
 }
 
 /// An ordered role list for the guided batch speaker capture flow
-/// (#278). The plan is explicit operator/task authority: the flow steps
+/// (legacy bolph71656-ai/HTDT-Capture#278). The plan is explicit operator/task authority: the flow steps
 /// through `roles` one at a time, tracks per-role completion against
 /// the staged annotations, and never invents extra roles.
 public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
@@ -62,7 +62,7 @@ public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
     public let schemaVersionValue: String
     /// Plan label, e.g. the preset name or a task-plan identifier.
     public let planName: String
-    /// Exact layout profile this plan's role order comes from (#315);
+    /// Exact layout profile this plan's role order comes from (legacy bolph71656-ai/HTDT-Capture#315);
     /// nil on plans written before profile authority existed.
     public let profileIdentity: SpeakerLayoutProfileReference?
     public var roles: [SpeakerLayoutRole]
@@ -89,12 +89,12 @@ public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
 }
 
 /// Named presets the operator can pick when no external task plan
-/// (#240) is supplied. Selecting a preset is an explicit choice — the
+/// (legacy bolph71656-ai/HTDT-Capture#240) is supplied. Selecting a preset is an explicit choice — the
 /// plan lists every role it will ask for, and the operator can still
 /// add/remove roles or skip them inside the flow.
 public enum SpeakerLayoutPresets {
     /// Each preset plan is derived from its exact `SpeakerLayoutProfile`
-    /// (#315): the role order is the profile's declaration order and the
+    /// (legacy bolph71656-ai/HTDT-Capture#315): the role order is the profile's declaration order and the
     /// plan carries the profile identity so entities authored through
     /// the flow can record a `role_binding` against it.
     public static var stereo: SpeakerLayoutPlan {
@@ -118,7 +118,7 @@ public enum SpeakerLayoutPresets {
     }
 }
 
-/// Per-role capture state inside a running layout flow (#278).
+/// Per-role capture state inside a running layout flow (legacy bolph71656-ai/HTDT-Capture#278).
 /// `skipped` and `notInstalled` are kept distinct from `pending` so a
 /// deliberately skipped role is never confused with a forgotten one.
 public enum SpeakerLayoutRoleState: String, Codable, Sendable, Equatable {

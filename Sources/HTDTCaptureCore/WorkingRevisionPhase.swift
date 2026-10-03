@@ -1,6 +1,6 @@
 import Foundation
 
-/// Durable lifecycle phase of a `working/<uuid>` revision (issue #297).
+/// Durable lifecycle phase of a `working/<uuid>` revision (issue bolph71656-ai/HTDT-Capture#297).
 ///
 /// The record lives at `session/revision-state.json` inside the working
 /// directory — a declared payload, so `verifyIntegrity` keeps its
@@ -15,7 +15,7 @@ import Foundation
 ///   inside `sealForFinalization`. A directory without a decodable
 ///   document, or with `liveScanIncomplete`, is a mid-scan leftover:
 ///   its AR coordinate authority died with the process and it is never
-///   resumable (the #224 abandoned-revision path) — unless the
+///   resumable (the legacy bolph71656-ai/HTDT-Capture#224 abandoned-revision path) — unless the
 ///   complete durable End payload set is present, which proves the
 ///   End batch committed and only the marker-flip write was lost;
 ///   restore then heals the marker to `endAccepted`.
@@ -38,7 +38,7 @@ public enum WorkingRevisionPhase: String, Codable, Sendable, Equatable {
 
 /// Volatile evaluation inputs checkpointed at the End commit so a
 /// relaunched draft re-derives the same quality and advisory verdicts
-/// instead of reporting scan-time trackers as absent (issue #297).
+/// instead of reporting scan-time trackers as absent (issue bolph71656-ai/HTDT-Capture#297).
 public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
     /// Compacted tracking-run intervals (the source of `trackingEvents`
     /// in `evaluateQuality`). Persisted verbatim because the AR frame
@@ -46,30 +46,30 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
     public let trackingIntervals: [WorkingRevisionTrackingInterval]
     public let resourceEvents: [CaptureResourceEvent]
     public let benchmarkRefs: [String]
-    /// Operator capture-task profile (#217/#259), persisted so task
+    /// Operator capture-task profile (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259), persisted so task
     /// completeness re-evaluates against the recovered annotations.
     public let taskProfile: CaptureTaskProfile?
     public let skippedTaskRequirementIDs: [String]
-    /// The accepted End boundary's closing frame markers (#241).
+    /// The accepted End boundary's closing frame markers (legacy bolph71656-ai/HTDT-Capture#241).
     public let endBoundaryFrameIDs: [EvidenceFrameID]
-    /// The advisory End-boundary coverage snapshot (#223).
+    /// The advisory End-boundary coverage snapshot (legacy bolph71656-ai/HTDT-Capture#223).
     public let endCoverage: CaptureEndCoverageSummary?
-    /// RoomPlan coaching history as recorded during the scan (#260) —
+    /// RoomPlan coaching history as recorded during the scan (legacy bolph71656-ai/HTDT-Capture#260) —
     /// persisted because the delegate feed died with the session.
     public let roomPlanGuidanceAvailable: Bool
     public let roomPlanGuidance: RoomPlanGuidanceSummary?
-    /// Mesh anchor lifecycle summary (#268), likewise unrecoverable
+    /// Mesh anchor lifecycle summary (legacy bolph71656-ai/HTDT-Capture#268), likewise unrecoverable
     /// from the committed index alone.
     public let meshLifecycle: MeshAnchorLifecycleSummary?
-    /// Operator/provenance advisory notes (#277) — also committed as
+    /// Operator/provenance advisory notes (legacy bolph71656-ai/HTDT-Capture#277) — also committed as
     /// `advisory/operator-advisories.json`; carried here so a recovery
     /// that finds the advisory file missing still has the notes.
     public let advisoryNotes: [CaptureAdvisoryNote]
-    /// Operator field notes (#375) — also committed as
+    /// Operator field notes (legacy bolph71656-ai/HTDT-Capture#375) — also committed as
     /// `session/field-notes.json`; carried here so recovery still has
     /// them when the file itself is missing.
     public let fieldNotes: [CaptureFieldNote]
-    /// Retention reason per committed evidence frame (#255), keyed by
+    /// Retention reason per committed evidence frame (legacy bolph71656-ai/HTDT-Capture#255), keyed by
     /// `path:evidence/frames/<id>.json` — app-owned provenance that
     /// re-labels the picker's entries on a recovered draft.
     public let retentionKinds: [String: EvidenceFrameRetentionKind]
@@ -123,7 +123,7 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
     }
 
     /// Back-compatible decode: `field_notes` did not exist on
-    /// checkpoints written before issue #375, so it tolerates a
+    /// checkpoints written before issue bolph71656-ai/HTDT-Capture#375, so it tolerates a
     /// missing key while every older field keeps its strict
     /// requirement.
     public init(from decoder: Decoder) throws {
@@ -283,7 +283,7 @@ public struct WorkingRevisionStateDocument:
     public let phase: WorkingRevisionPhase
     public let updatedAtUTC: String
     /// True when the revision was created under practice mode
-    /// (issue #320): it can never be finalized and is never surfaced as
+    /// (issue bolph71656-ai/HTDT-Capture#320): it can never be finalized and is never surfaced as
     /// a recoverable real capture.
     public let practice: Bool
     public let checkpoint: WorkingRevisionCheckpoint?
@@ -362,7 +362,7 @@ public struct WorkingRevisionStateDocument:
 }
 
 /// A `working/<uuid>` revision whose End boundary committed durably and
-/// whose phase marker survived relaunch (issue #297). It reopens into
+/// whose phase marker survived relaunch (issue bolph71656-ai/HTDT-Capture#297). It reopens into
 /// Review with spatial authority sealed; it is never resumable as a
 /// live scan.
 public struct RecoverableWorkingRevision:
@@ -417,7 +417,7 @@ public struct RecoverableWorkingRevision:
 }
 
 /// What the restore pass found while rebuilding an end-accepted working
-/// revision (issue #297): provenance for the recovery itself, surfaced
+/// revision (issue bolph71656-ai/HTDT-Capture#297): provenance for the recovery itself, surfaced
 /// in the reopened Review instead of guessed.
 public struct WorkingRevisionRestoreReport: Sendable, Equatable {
     /// Files present on disk with no recoverable declaration — kept,

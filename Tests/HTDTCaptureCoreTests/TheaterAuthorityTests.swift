@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Theater-semantic authorities (#218, #228, #233, #234, #256, #262,
-/// #264, #280, #281, #288, #289, #290): record invariants, collection
+/// Theater-semantic authorities (legacy bolph71656-ai/HTDT-Capture#218, legacy bolph71656-ai/HTDT-Capture#228, legacy bolph71656-ai/HTDT-Capture#233, legacy bolph71656-ai/HTDT-Capture#234, legacy bolph71656-ai/HTDT-Capture#256, legacy bolph71656-ai/HTDT-Capture#262,
+/// legacy bolph71656-ai/HTDT-Capture#264, legacy bolph71656-ai/HTDT-Capture#280, legacy bolph71656-ai/HTDT-Capture#281, legacy bolph71656-ai/HTDT-Capture#288, legacy bolph71656-ai/HTDT-Capture#289, legacy bolph71656-ai/HTDT-Capture#290): record invariants, collection
 /// cross-reference resolution, canonical packaging, and the store's
 /// three-file atomic commit.
 final class TheaterAuthorityTests: XCTestCase {
@@ -49,7 +49,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #218 surface authority
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#218 surface authority
 
     func testBindingRequiresLineageAnchor() throws {
         XCTAssertThrowsError(
@@ -132,7 +132,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #233 construction observation
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#233 construction observation
 
     func testConstructionObservationCarriesSource() throws {
         let record = try SurfaceConstructionObservation(
@@ -152,7 +152,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #256 problem surfaces
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#256 problem surfaces
 
     func testProblemSurfaceRecordsKindAndEvidence() throws {
         let record = try ProblemSurfaceObservation(
@@ -169,7 +169,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #262 construction features
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#262 construction features
 
     func testConstructionFeatureKeepsConfirmationSource() throws {
         let record = try ConstructionFeatureCandidate(
@@ -187,7 +187,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #264 room state snapshots
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#264 room state snapshots
 
     func testSnapshotRequiresObservations() throws {
         XCTAssertThrowsError(
@@ -284,7 +284,7 @@ final class TheaterAuthorityTests: XCTestCase {
         }
     }
 
-    // MARK: - #281 inventory
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#281 inventory
 
     func testInventoryItemRequiresLabel() throws {
         XCTAssertThrowsError(
@@ -315,7 +315,7 @@ final class TheaterAuthorityTests: XCTestCase {
         }
     }
 
-    // MARK: - #288 furniture
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#288 furniture
 
     func testFurnitureRequiresEntityOrBinding() throws {
         XCTAssertThrowsError(
@@ -332,7 +332,7 @@ final class TheaterAuthorityTests: XCTestCase {
         }
     }
 
-    // MARK: - #280 speaker installation
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#280 speaker installation
 
     func testSpeakerInstallationRecord() throws {
         let speaker = try speakerEntity()
@@ -350,7 +350,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #289 screen semantics
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#289 screen semantics
 
     func testScreenTransparencySourceRequiredWhenKnown() throws {
         let screen = try entity(
@@ -390,7 +390,7 @@ final class TheaterAuthorityTests: XCTestCase {
         }
     }
 
-    // MARK: - #290 seat layout
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#290 seat layout
 
     func testSeatLayoutRiserLinkRequiresRiserFeature() throws {
         let seat = try entity(type: .seat, label: "seat 1")
@@ -464,7 +464,7 @@ final class TheaterAuthorityTests: XCTestCase {
         }
     }
 
-    // MARK: - #228 speaker 3D aim
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#228 speaker 3D aim
 
     func testSpeakerAimZeroElevationMatchesYawOnly() throws {
         let axes = try ManualAuthorityBuilder
@@ -551,7 +551,7 @@ final class TheaterAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: - #234 acoustic center
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#234 acoustic center
 
     func testAcousticCenterOnlyOnLoudspeakers() throws {
         let center = try AcousticCenterOffsetAuthority(

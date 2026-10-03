@@ -43,7 +43,7 @@ public enum AnnotationEvidencePackageBuilder {
     /// revision. When provided, any surviving entity whose record
     /// differs from its prior version is stamped with `updated_at_utc`
     /// so a pre-finalization correction revises lifecycle metadata
-    /// explicitly rather than silently replacing it (#267).
+    /// explicitly rather than silently replacing it (legacy bolph71656-ai/HTDT-Capture#267).
     public static func build(
         entities: [CaptureAnnotationEntity],
         relations: [CaptureSemanticRelation] = [],

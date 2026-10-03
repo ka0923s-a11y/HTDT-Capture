@@ -1,7 +1,7 @@
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #408: the accepted-geometry scene is a derived read model —
+/// Issue bolph71656-ai/HTDT-Capture#408: the accepted-geometry scene is a derived read model —
 /// captured evidence, derived candidates, and semantic authority
 /// stay visually distinct, and camera presets resolve without the
 /// renderer.

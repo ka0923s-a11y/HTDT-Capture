@@ -1,6 +1,6 @@
 import Foundation
 
-/// Lighting condition for AR acquisition guidance (#283).
+/// Lighting condition for AR acquisition guidance (legacy bolph71656-ai/HTDT-Capture#283).
 ///
 /// Home-theater rooms are commonly operated dark; visual tracking and
 /// evidence frames still need light even though LiDAR depth does not.

@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import HTDTCaptureCore
 import HTDTCapturePlatform
 
-/// Mission inbox detail/list surface (issue #386): missions grouped
+/// Mission inbox detail/list surface (issue bolph71656-ai/HTDT-Capture#386): missions grouped
 /// project → room, each record showing lifecycle, plan identity,
 /// declared dependencies, and its associated captures. Start is the
 /// only action that can begin a mission's capture work and it is
@@ -12,11 +12,11 @@ import HTDTCapturePlatform
 struct HTDTMissionInboxView: View {
     let records: [HTDTMissionRecord]
     let activeMissionRecordID: String?
-    /// Replayed mission progress per record id (#397) — never a
+    /// Replayed mission progress per record id (legacy bolph71656-ai/HTDT-Capture#397) — never a
     /// stored percentage.
     let progressEvaluations: [String: MissionProgressEvaluation]
     let actions: CaptureRootActions
-    /// #422/#423: active paired receivers — the Mission pull refresh
+    /// legacy bolph71656-ai/HTDT-Capture#422/legacy bolph71656-ai/HTDT-Capture#423: active paired receivers — the Mission pull refresh
     /// and the Field Return send surface both key off this list.
     var pairedDestinations: [PairedHTDTDestination] = []
     /// Idle-only import/action outcomes (`workingSetStatus` on the
@@ -39,10 +39,10 @@ struct HTDTMissionInboxView: View {
         HTDTMissionDependencyReport?
     @State private var dependencyError: String?
     @State private var confirmingArchive = false
-    /// Operator note draft for the detail sheet (#463) — seeded
+    /// Operator note draft for the detail sheet (legacy bolph71656-ai/HTDT-Capture#463) — seeded
     /// from the record when the sheet opens.
     @State private var userNoteDraft = ""
-    /// Pending "waive with reason" prompt (#364 §10) — the waiver
+    /// Pending "waive with reason" prompt (legacy bolph71656-ai/HTDT-Capture#364 §10) — the waiver
     /// records the operator's reason as its audited note.
     @State private var waivingItem: WaivePrompt?
     @State private var waiveReasonDraft = ""
@@ -95,7 +95,7 @@ struct HTDTMissionInboxView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .captureSecondaryAction()
-                // #422: the receive leg's bounded pull refresh —
+                // legacy bolph71656-ai/HTDT-Capture#422: the receive leg's bounded pull refresh —
                 // enumerates each paired receiver's pending-Mission
                 // listing and stages verified packages here. No
                 // polling; runs only on demand (and on refresh below).
@@ -171,7 +171,7 @@ struct HTDTMissionInboxView: View {
         }
         .fileImporter(
             isPresented: $importingMission,
-            // #457: the dedicated `.htdtmission` package type is
+            // legacy bolph71656-ai/HTDT-Capture#457: the dedicated `.htdtmission` package type is
             // pickable alongside plain JSON payloads.
             allowedContentTypes: [.json, .htdtMission],
             allowsMultipleSelection: false
@@ -228,7 +228,7 @@ struct HTDTMissionInboxView: View {
     }
 
     /// Aggregated field progress replayed from the mission progress
-    /// ledger (#397): per-kind tallies, outstanding items with the
+    /// ledger (legacy bolph71656-ai/HTDT-Capture#397): per-kind tallies, outstanding items with the
     /// explicit waiver action (mission-level, auditable — never a
     /// revision-local skip), contested items where two heads claimed
     /// the same item, and the field-complete verdict kept separate
@@ -480,7 +480,7 @@ struct HTDTMissionInboxView: View {
                             record.associatedCaptureRevisionIDs,
                             id: \.self
                         ) { revisionID in
-                            // #461: the revision row opens its persisted
+                            // legacy bolph71656-ai/HTDT-Capture#461: the revision row opens its persisted
                             // capture — never a dead text id.
                             if let parsed = CaptureRevisionID(
                                 canonicalString: revisionID
@@ -512,7 +512,7 @@ struct HTDTMissionInboxView: View {
                 }
             }
 
-            // #463: the record's operator annotation — editable,
+            // legacy bolph71656-ai/HTDT-Capture#463: the record's operator annotation — editable,
             // never issuer truth.
             Section("Mission note") {
                 TextField(
@@ -543,7 +543,7 @@ struct HTDTMissionInboxView: View {
                 missionProgressSection(record, progress)
             }
 
-            // #400: finalized field returns list separately from
+            // legacy bolph71656-ai/HTDT-Capture#400: finalized field returns list separately from
             // capture revisions in mission history — the non-spatial
             // completion path stays visible on its own terms.
             if !record.fieldReturnIDs.isEmpty
@@ -705,7 +705,7 @@ struct HTDTMissionInboxView: View {
                         )
                     }
                 }
-                // #456: explicit close once field work or delivery
+                // legacy bolph71656-ai/HTDT-Capture#456: explicit close once field work or delivery
                 // landed — missions otherwise stay open forever.
                 if record.lifecycle.canMarkCompleted {
                     Button {
@@ -730,7 +730,7 @@ struct HTDTMissionInboxView: View {
             }
 
             // Destructive: kept in its own section away from the
-            // routine start/deactivate actions, and confirmed (#445).
+            // routine start/deactivate actions, and confirmed (legacy bolph71656-ai/HTDT-Capture#445).
             if record.lifecycle != .archived,
                record.lifecycle != .superseded
             {
@@ -762,7 +762,7 @@ struct HTDTMissionInboxView: View {
             }
         }
         .navigationTitle(record.roomName)
-        // #364 §10: waiving records the operator's reason as the
+        // legacy bolph71656-ai/HTDT-Capture#364 §10: waiving records the operator's reason as the
         // waiver's audited note — the sheet stacks on the detail
         // sheet's own host, not the inbox root's.
         .sheet(item: $waivingItem) { prompt in
@@ -847,7 +847,7 @@ struct HTDTMissionInboxView: View {
         }
     }
 
-    /// #422: runs the bounded Mission pull and summarizes the
+    /// legacy bolph71656-ai/HTDT-Capture#422: runs the bounded Mission pull and summarizes the
     /// reports into one operator-readable line — counts only; the
     /// receipt ledger holds the per-package detail.
     private func checkHTDTForMissions() async {
@@ -910,7 +910,7 @@ struct HTDTMissionInboxView: View {
     }
 }
 
-/// QR-paired, identity-pinned HTDT destinations (issue #379): each
+/// QR-paired, identity-pinned HTDT destinations (issue bolph71656-ai/HTDT-Capture#379): each
 /// record shows the pinned receiver identity, when pairing happened,
 /// last contact, and the cached capability snapshot labeled with its
 /// fetch time. Forget deletes the pairing; re-pair replaces it.
@@ -1113,7 +1113,7 @@ struct PairedHTDTDestinationsView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             // Destructive: separated from the routine refresh action
-            // and confirmed before the pairing is dropped (#445).
+            // and confirmed before the pairing is dropped (legacy bolph71656-ai/HTDT-Capture#445).
             Button("Forget", role: .destructive) {
                 forgetCandidate = destination
             }
@@ -1146,7 +1146,7 @@ struct PairedHTDTDestinationsView: View {
     }
 }
 
-/// Delivery queue surface (issue #387): the durable job ledger —
+/// Delivery queue surface (issue bolph71656-ai/HTDT-Capture#387): the durable job ledger —
 /// every queued/retrying/blocked/delivered send, outside the send
 /// sheet, with operator controls for retry-now, pause, resume,
 /// cancel, and payload purge.
@@ -1161,7 +1161,7 @@ struct HTDTDeliveryQueueView: View {
     @State private var pendingJobAction:
         (HTDTDeliveryJob, PendingJobAction)?
 
-    /// #462: queue filters + text search — the queue only grows, so
+    /// legacy bolph71656-ai/HTDT-Capture#462: queue filters + text search — the queue only grows, so
     /// the view needs the same triage affordances the evidence
     /// contact sheet already has.
     @State private var filter: HTDTDeliveryQueueFilter = .all
@@ -1237,7 +1237,7 @@ struct HTDTDeliveryQueueView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 // Human artifact type + context — never a bare
-                // revision id as the only label (#423).
+                // revision id as the only label (legacy bolph71656-ai/HTDT-Capture#423).
                 Text(job.displayTitle).font(.headline)
                 Spacer()
                 stateBadge(job.state)
@@ -1382,7 +1382,7 @@ struct HTDTDeliveryQueueView: View {
                     )
                 }
             }
-            // #462: reach the artifact the job transports — a queued
+            // legacy bolph71656-ai/HTDT-Capture#462: reach the artifact the job transports — a queued
             // capture opens its Library record; a field return
             // offers its finalized container via ShareLink.
             HStack {

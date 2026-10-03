@@ -27,7 +27,7 @@ public enum CapturePortalKind: String, Codable, Sendable, Equatable {
 }
 
 /// Lifecycle of one room/region segment inside a connected capture
-/// (issue #222). `active` is the segment currently being scanned;
+/// (issue bolph71656-ai/HTDT-Capture#222). `active` is the segment currently being scanned;
 /// `completed` segments may be revisited before finalization.
 public enum CaptureRegionState: String, Codable, Sendable, Equatable {
     case active
@@ -50,7 +50,7 @@ public enum ConnectedSpaceError: Error, Sendable, Equatable {
 
 /// One scanned room/region segment. All segments in one connected-space
 /// document share the revision's single bound coordinate space —
-/// independent spaces are never silently merged (issue #222).
+/// independent spaces are never silently merged (issue bolph71656-ai/HTDT-Capture#222).
 public struct CaptureRegionSegment: Codable, Sendable, Equatable {
     public let regionID: CaptureRegionID
     public let label: String
@@ -142,7 +142,7 @@ public struct CaptureRegionSegment: Codable, Sendable, Equatable {
 }
 
 /// An explicit doorway/passage relationship between two segments
-/// (issue #222). Portals are the only way segments relate — an
+/// (issue bolph71656-ai/HTDT-Capture#222). Portals are the only way segments relate — an
 /// implicit or geometric "looks adjacent" merge is never produced.
 public struct CaptureRegionPortal: Codable, Sendable, Equatable {
     public let portalID: CapturePortalID
@@ -225,7 +225,7 @@ public struct CaptureRegionPortal: Codable, Sendable, Equatable {
 }
 
 /// The persisted connected-space document at
-/// `session/connected-spaces.json` (issue #222). All segments and
+/// `session/connected-spaces.json` (issue bolph71656-ai/HTDT-Capture#222). All segments and
 /// portals reference the revision's single coordinate authority.
 public struct ConnectedSpaceDocument: Codable, Sendable, Equatable {
     public static let schema = "htdt.capture.connected-spaces"
@@ -339,7 +339,7 @@ public struct ConnectedSpaceDocument: Codable, Sendable, Equatable {
     }
 }
 
-/// Operator-facing connected-room workflow tracker (issue #222). The
+/// Operator-facing connected-room workflow tracker (issue bolph71656-ai/HTDT-Capture#222). The
 /// app drives segment lifecycle explicitly: begin, record a portal
 /// crossing, complete, revisit before finalization.
 public struct ConnectedSpaceTracker: Sendable, Equatable {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// How this build relates to a payload version it encounters (#332).
+/// How this build relates to a payload version it encounters (legacy bolph71656-ai/HTDT-Capture#332).
 public enum CapturePayloadCompatibility:
     String,
     Codable,
@@ -85,7 +85,7 @@ public struct PayloadFamilyContract:
     }
 }
 
-/// The published payload-version contract (#332): every versioned
+/// The published payload-version contract (legacy bolph71656-ai/HTDT-Capture#332): every versioned
 /// payload family maps one declared `schema_version` to exactly one
 /// immutable schema document and one compatibility status. Additive
 /// additions to a v1 family therefore can never silently keep the old

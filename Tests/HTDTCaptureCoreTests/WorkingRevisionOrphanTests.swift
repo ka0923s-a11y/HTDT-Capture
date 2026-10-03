@@ -485,7 +485,7 @@ func storagePolicyExcludesOnlyTheWorkingRootFromBackup() throws {
     }
 
     // Transient working data is excluded; user-facing finalized and
-    // exported artifacts deliberately are not (#136 policy).
+    // exported artifacts deliberately are not (legacy bolph71656-ai/HTDT-Capture#136 policy).
     let workingExcluded = try excluded(
         captureRoot.appendingPathComponent(
             "working",

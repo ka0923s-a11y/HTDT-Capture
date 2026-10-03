@@ -3,10 +3,10 @@ import Testing
 @testable import HTDTCaptureCore
 
 // Contract tests for the v1.1.0 contract/semantics work:
-// #303 entity lineage, #304 measurement lineage/disposition,
-// #332 payload-version policy, #333 relation graph,
-// #334 value domains + structured uncertainty, #344 open-token
-// namespaces, #354 task-plan fulfillment integrity, #356 as-built
+// legacy bolph71656-ai/HTDT-Capture#303 entity lineage, legacy bolph71656-ai/HTDT-Capture#304 measurement lineage/disposition,
+// legacy bolph71656-ai/HTDT-Capture#332 payload-version policy, legacy bolph71656-ai/HTDT-Capture#333 relation graph,
+// legacy bolph71656-ai/HTDT-Capture#334 value domains + structured uncertainty, legacy bolph71656-ai/HTDT-Capture#344 open-token
+// namespaces, legacy bolph71656-ai/HTDT-Capture#354 task-plan fulfillment integrity, legacy bolph71656-ai/HTDT-Capture#356 as-built
 // deviation/uncertainty verdicts.
 
 private func makePlacement() throws -> PlacementProvenance {
@@ -53,7 +53,7 @@ private func makeMeasurement(
     )
 }
 
-// MARK: - #303 entity lineage
+// MARK: - legacy bolph71656-ai/HTDT-Capture#303 entity lineage
 
 @Test
 func entityLineageLinksToParentRevision() throws {
@@ -130,7 +130,7 @@ func legacyEntitiesPayloadDecodesWithLineageUnknown() throws {
     #expect(collection.schemaVersion == "1.0.0")
 }
 
-// MARK: - #304 measurement lineage
+// MARK: - legacy bolph71656-ai/HTDT-Capture#304 measurement lineage
 
 @Test
 func measurementLineageDistinguishesRepeatFromRetake() throws {
@@ -197,7 +197,7 @@ func legacyMeasurementsDecodeWithoutLineage() throws {
     #expect(collection.measurements.first?.uncertainty == nil)
 }
 
-// MARK: - #332 payload-version policy
+// MARK: - legacy bolph71656-ai/HTDT-Capture#332 payload-version policy
 
 @Test
 func supportMatrixDecodesEmbeddedDocument() throws {
@@ -297,7 +297,7 @@ func entitiesPayloadVersionsDispatchToMatchingSchema() throws {
             data: bad
         )
     }
-    // v1.2.0 is the emitted document (#403); the 1.1.0 document
+    // v1.2.0 is the emitted document (legacy bolph71656-ai/HTDT-Capture#403); the 1.1.0 document
     // rejects `same_physical_equipment` which only entered the
     // vocabulary at 1.2.0.
     let latest = Data(
@@ -311,7 +311,7 @@ func entitiesPayloadVersionsDispatchToMatchingSchema() throws {
     )
 }
 
-// MARK: - #333 typed relation graph
+// MARK: - legacy bolph71656-ai/HTDT-Capture#333 typed relation graph
 
 @Test
 func relationGraphRejectsDuplicatesSelfLinksAndDanglingRefs() throws {
@@ -418,7 +418,7 @@ func oneToManyRelationRepresentable() throws {
     let speaker = try makeSpeaker()
     let sub = try makeSpeaker(label: "Sub", channelRole: .lfe1)
     // member_of_rack is subject-device → object-rack; the one-to-many
-    // shape is exercised with a custom-scoped type (#344) whose
+    // shape is exercised with a custom-scoped type (legacy bolph71656-ai/HTDT-Capture#344) whose
     // endpoint policy is open.
     let relation = try CaptureSemanticRelation(
         relationType: SemanticRelationType(rawValue: "x_rack_members")!,
@@ -460,7 +460,7 @@ func externalEndpointRequiresNamespacedAuthority() throws {
     )
 }
 
-// MARK: - #334 value domains + structured uncertainty
+// MARK: - legacy bolph71656-ai/HTDT-Capture#334 value domains + structured uncertainty
 
 @Test
 func standardQuantityDomainsEnforced() throws {
@@ -547,7 +547,7 @@ func structuredUncertaintyKindsEnforceCoverageRules() throws {
     }
 }
 
-// MARK: - #344 open-token namespaces
+// MARK: - legacy bolph71656-ai/HTDT-Capture#344 open-token namespaces
 
 @Test
 func openTokenPolicyClassifiesAndScopes() throws {
@@ -632,7 +632,7 @@ func unscopedTokensRejectedOnV110ButReadableOnV100() throws {
     #expect(collection.legacyUnscopedQuantityMeasurements.count == 1)
 }
 
-// MARK: - #354 task-plan fulfillment integrity
+// MARK: - legacy bolph71656-ai/HTDT-Capture#354 task-plan fulfillment integrity
 
 private func makePlanImport(
     entityItems: [HTDTTaskPlanEntityItem] = [],
@@ -802,7 +802,7 @@ func statusDocumentRejectsFulfillmentOnNonCompletedOutcome() throws {
     }
 }
 
-/// #449: `fulfillment_ref` is the same decoration under a second
+/// legacy bolph71656-ai/HTDT-Capture#449: `fulfillment_ref` is the same decoration under a second
 /// representation — a non-completed outcome must reject it exactly
 /// as it rejects `fulfillment`.
 @Test
@@ -827,7 +827,7 @@ func statusDocumentRejectsFulfillmentRefOnNonCompletedOutcome()
     }
 }
 
-// MARK: - #356 as-built deviation + uncertainty verdicts
+// MARK: - legacy bolph71656-ai/HTDT-Capture#356 as-built deviation + uncertainty verdicts
 
 @Test
 func deviationStoresDeltaNotAbsolutePosition() throws {
@@ -924,7 +924,7 @@ func alignmentResidualValidatesNonNegativeFinite() throws {
     }
 }
 
-// MARK: - #332 support-matrix file consistency
+// MARK: - legacy bolph71656-ai/HTDT-Capture#332 support-matrix file consistency
 
 @Test
 func emittedSchemasMatchSupportMatrix() throws {

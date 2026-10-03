@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issues #458/#462: the app-local operator roster store and the
+/// Issues bolph71656-ai/HTDT-Capture#458/legacy bolph71656-ai/HTDT-Capture#462: the app-local operator roster store and the
 /// delivery-queue filters — small workflow-completeness gaps closed
 /// in the feature-gap pass.
 final class HTDTFeatureGapTests: XCTestCase {
@@ -34,7 +34,7 @@ final class HTDTFeatureGapTests: XCTestCase {
         )
     }
 
-    // MARK: - Operator roster (#458)
+    // MARK: - Operator roster (legacy bolph71656-ai/HTDT-Capture#458)
 
     func testRosterMissingFileLoadsEmpty() throws {
         let root = try makeRoot()
@@ -106,7 +106,7 @@ final class HTDTFeatureGapTests: XCTestCase {
         }
     }
 
-    // MARK: - Delivery queue filters (#462)
+    // MARK: - Delivery queue filters (legacy bolph71656-ai/HTDT-Capture#462)
 
     func testQueueFilterMatchesJobStates() throws {
         for state in [

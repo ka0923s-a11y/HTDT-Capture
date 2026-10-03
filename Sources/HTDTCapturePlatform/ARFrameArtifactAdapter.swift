@@ -62,7 +62,7 @@ public struct CapturedFrameSnapshot: @unchecked Sendable {
     public let smoothedDepthData: ARDepthData?
     public let depthSelection: FrameDepthSelection
     /// Bounded non-EXIF provenance merged into the descriptor's
-    /// `exif_allowlisted` map (#275): the per-frame string map is the
+    /// `exif_allowlisted` map (legacy bolph71656-ai/HTDT-Capture#275): the per-frame string map is the
     /// schema-safe, integrity-covered channel for source/profile
     /// provenance (high-res source, purpose, visual profile) without a
     /// descriptor schema change. Entries are `HTDT.*` keys only.

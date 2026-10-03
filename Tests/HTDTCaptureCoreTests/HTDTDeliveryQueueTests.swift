@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #387: durable delivery queue — enqueue pins bytes, attempts
+/// Issue bolph71656-ai/HTDT-Capture#387: durable delivery queue — enqueue pins bytes, attempts
 /// are receipted, transient failures back off, semantic/pin failures
 /// stop, and launch reconciliation never replays a mid-flight job
 /// without its stable delivery id.

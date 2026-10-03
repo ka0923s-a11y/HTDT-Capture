@@ -1,6 +1,6 @@
 import Foundation
 
-/// Errors raised by the mission inbox (issue #386).
+/// Errors raised by the mission inbox (issue bolph71656-ai/HTDT-Capture#386).
 public enum HTDTMissionInboxError: Error, Sendable, Equatable {
     /// Payload is neither a valid `htdt.capture-mission` envelope nor
     /// a bare `htdt.capture-task-plan` document.
@@ -34,7 +34,7 @@ public enum HTDTMissionKind: String, Codable, Sendable, CaseIterable {
 }
 
 /// A dependency the mission declares for its Start action (issue
-/// #386). `ref` names the depended-upon mission id, capture revision,
+/// legacy bolph71656-ai/HTDT-Capture#386). `ref` names the depended-upon mission id, capture revision,
 /// equipment-catalog digest, or receiver capability subject; `kind`
 /// tells the evaluator how to resolve it; `required` decides whether
 /// an unmet dependency blocks Start or is advisory.
@@ -60,7 +60,7 @@ public struct HTDTMissionDependency: Codable, Sendable, Equatable {
     }
 }
 
-/// Mission envelope document (issue #386): the unit HTDT issues and
+/// Mission envelope document (issue bolph71656-ai/HTDT-Capture#386): the unit HTDT issues and
 /// this app imports. A mission wraps exactly one task plan plus the
 /// mission-level intent (purpose, supersession, follow-up lineage,
 /// dependencies, minimum receiver capability) that must never become
@@ -87,7 +87,7 @@ public struct HTDTMissionPackage: Codable, Sendable, Equatable {
     /// revision id, a finding id — issuer's vocabulary).
     public let followUpOriginRef: String?
     public let dependencies: [HTDTMissionDependency]
-    /// Minimum receiver capability the mission requires (#374).
+    /// Minimum receiver capability the mission requires (legacy bolph71656-ai/HTDT-Capture#374).
     public let receiverRequirement: HTDTMissionReceiverRequirement?
 
     public init(
@@ -132,7 +132,7 @@ public struct HTDTMissionPackage: Codable, Sendable, Equatable {
     }
 }
 
-/// What an import call classified the payload as (issue #386).
+/// What an import call classified the payload as (issue bolph71656-ai/HTDT-Capture#386).
 public enum HTDTMissionImportOutcome: Sendable, Equatable {
     /// A distinct new record was added.
     case imported(HTDTMissionRecord)
@@ -199,7 +199,7 @@ public struct HTDTMissionImport: Sendable, Equatable {
     }
 }
 
-/// Mission lifecycle (issue #386). Terminal-ish states still keep the
+/// Mission lifecycle (issue bolph71656-ai/HTDT-Capture#386). Terminal-ish states still keep the
 /// record selectable — `archived` only hides it from the default list.
 public enum HTDTMissionLifecycle: String, Codable, Sendable {
     case received
@@ -215,7 +215,7 @@ public enum HTDTMissionLifecycle: String, Codable, Sendable {
     case needsFollowUp = "needs_follow_up"
     case completed
     /// Explicitly replaced by a newer mission record — keeps its
-    /// capture associations and history (#386).
+    /// capture associations and history (legacy bolph71656-ai/HTDT-Capture#386).
     case superseded
     /// Hidden from the default inbox but never deleted.
     case archived
@@ -245,7 +245,7 @@ public enum HTDTMissionLifecycle: String, Codable, Sendable {
     }
 }
 
-/// One persisted mission record (issue #386). Every field survives
+/// One persisted mission record (issue bolph71656-ai/HTDT-Capture#386). Every field survives
 /// app relaunch verbatim; non-AR progress (capture associations,
 /// delivery jobs, lifecycle) is reconstructed entirely from this
 /// record plus the stores it cross-references.
@@ -277,7 +277,7 @@ public struct HTDTMissionRecord:
     /// mission association.
     public var associatedCaptureRevisionIDs: [String]
     /// Field-return contribution ids attached to this mission (issue
-    /// #400). Non-spatial work completes a mission through these
+    /// legacy bolph71656-ai/HTDT-Capture#400). Non-spatial work completes a mission through these
     /// alongside (or instead of) capture revisions.
     public var fieldReturnIDs: [String]
     public let supersedesMissionID: String?
@@ -286,9 +286,9 @@ public struct HTDTMissionRecord:
     public let followUpOriginRef: String?
     /// Declared dependencies carried from the envelope.
     public let dependencies: [HTDTMissionDependency]
-    /// Minimum receiver capability the mission requires (#374).
+    /// Minimum receiver capability the mission requires (legacy bolph71656-ai/HTDT-Capture#374).
     public let receiverRequirement: HTDTMissionReceiverRequirement?
-    /// Delivery-queue jobs satisfying this mission's send (#387).
+    /// Delivery-queue jobs satisfying this mission's send (legacy bolph71656-ai/HTDT-Capture#387).
     public var deliveryJobIDs: [String]
     /// Operator annotation; never issuer truth.
     public var userNote: String?
@@ -375,7 +375,7 @@ public struct HTDTMissionRecord:
         case userNote = "user_note"
     }
 
-    /// Inbox files written before #400 lack `field_return_ids` —
+    /// Inbox files written before legacy bolph71656-ai/HTDT-Capture#400 lack `field_return_ids` —
     /// decode them as an empty set rather than failing the whole
     /// inbox.
     public init(from decoder: Decoder) throws {
@@ -451,7 +451,7 @@ public struct HTDTMissionRecord:
 }
 
 /// Result of evaluating a record's declared dependencies plus its
-/// plan's equipment-catalog pin (issue #386). Required misses block
+/// plan's equipment-catalog pin (issue bolph71656-ai/HTDT-Capture#386). Required misses block
 /// Start; optional misses and receiver gaps are surfaced advisedly.
 public struct HTDTMissionDependencyReport: Sendable, Equatable {
     public var missingRequired: [String]
@@ -481,7 +481,7 @@ public struct HTDTMissionDependencyReport: Sendable, Equatable {
     }
 }
 
-/// What resuming a mission means (issue #386): the persisted record,
+/// What resuming a mission means (issue bolph71656-ai/HTDT-Capture#386): the persisted record,
 /// its plan bytes ready to re-import as the capture's task plan, and
 /// an honest statement that workflow progress resumes but the live AR
 /// session never does.
@@ -498,7 +498,7 @@ public struct HTDTMissionResume: Sendable, Equatable {
     public var liveARSessionResumable: Bool { false }
 }
 
-/// Mission inbox store (issue #386): `<captureRoot>/mission-inbox.json`
+/// Mission inbox store (issue bolph71656-ai/HTDT-Capture#386): `<captureRoot>/mission-inbox.json`
 /// plus verbatim payloads under `<captureRoot>/missions/`. Import is
 /// idempotent on byte-identical payloads, fails closed on conflicting
 /// same-identity bytes, and lands superseding missions as distinct
@@ -595,7 +595,7 @@ public struct HTDTMissionInboxStore: Sendable {
         return document.records.first { $0.recordID == activeID }
     }
 
-    /// Records grouped project → room for the inbox UI (issue #386).
+    /// Records grouped project → room for the inbox UI (issue bolph71656-ai/HTDT-Capture#386).
     public func grouped() throws
         -> [String: [String: [HTDTMissionRecord]]]
     {
@@ -613,7 +613,7 @@ public struct HTDTMissionInboxStore: Sendable {
     /// on byte-identical re-import; fails closed when the same
     /// `mission_id` arrives with different bytes and no supersession
     /// declaration; a declared supersession lands a distinct record
-    /// and marks the replaced one `superseded` (#386).
+    /// and marks the replaced one `superseded` (legacy bolph71656-ai/HTDT-Capture#386).
     @discardableResult
     public func importMission(
         data: Data,
@@ -632,7 +632,7 @@ public struct HTDTMissionInboxStore: Sendable {
                 .supersedesMissionID == existing.missionID
             guard isExplicitSupersession else {
                 // Same identity, different bytes, no declared
-                // supersession — fail closed (#386).
+                // supersession — fail closed (legacy bolph71656-ai/HTDT-Capture#386).
                 throw HTDTMissionInboxError.conflictingIdentity
             }
         }
@@ -702,7 +702,7 @@ public struct HTDTMissionInboxStore: Sendable {
         }
         // A mission naming an earlier mission as its follow-up origin
         // is the receiver's signal that the earlier mission needs
-        // follow-up work (#386) — it flips to `needs_follow_up`
+        // follow-up work (legacy bolph71656-ai/HTDT-Capture#386) — it flips to `needs_follow_up`
         // unless it already sits in a terminal-ish state.
         if let followUpOf = parsed.package.followUpOfMissionID,
            let index = document.records.firstIndex(where: {
@@ -723,7 +723,7 @@ public struct HTDTMissionInboxStore: Sendable {
 
     /// Evaluates a record's declared dependencies against the inbox,
     /// the persisted capture inventory, and the delivery queue, plus
-    /// the plan's equipment-catalog pin (issue #386). Called before
+    /// the plan's equipment-catalog pin (issue bolph71656-ai/HTDT-Capture#386). Called before
     /// Start so blockers surface before scanning begins.
     public func evaluateDependencies(
         recordID: String,
@@ -750,7 +750,7 @@ public struct HTDTMissionInboxStore: Sendable {
                     $0.captureRevisionID.description == dependency.ref
                 } ?? false
             case .captureDelivered:
-                // #423: a delivered capture dependency matches the
+                // legacy bolph71656-ai/HTDT-Capture#423: a delivered capture dependency matches the
                 // job's artifact id, whatever artifact family rides
                 // the queue.
                 satisfied = (try? deliveryQueue?.jobs())?
@@ -875,7 +875,7 @@ public struct HTDTMissionInboxStore: Sendable {
     /// Clears the active pointer without touching the record's
     /// captures — pausing is persistence, not deletion. A mission
     /// still in `in_progress` returns to `ready` so it can be
-    /// started again (#386).
+    /// started again (legacy bolph71656-ai/HTDT-Capture#386).
     public func pauseActiveMission() throws {
         var document = try load()
         if let activeID = document.activeMissionRecordID,
@@ -938,7 +938,7 @@ public struct HTDTMissionInboxStore: Sendable {
     }
 
     /// Derives post-field lifecycle from the associations the app
-    /// records as work lands (#386): a record with associated capture
+    /// records as work lands (legacy bolph71656-ai/HTDT-Capture#386): a record with associated capture
     /// revisions in the inventory or committed field returns is
     /// `finalized`, and once an associated queue job reaches
     /// `deliveredStaged` the mission is `delivered`. Only forward
@@ -1013,7 +1013,7 @@ public struct HTDTMissionInboxStore: Sendable {
     }
 
     /// Links a finalized field-return contribution to this mission
-    /// (#400) — the non-spatial counterpart of `associateCapture`.
+    /// (legacy bolph71656-ai/HTDT-Capture#400) — the non-spatial counterpart of `associateCapture`.
     public func associateFieldReturn(
         recordID: String,
         contributionID: HTDTFieldReturnID
@@ -1026,7 +1026,7 @@ public struct HTDTMissionInboxStore: Sendable {
         }
     }
 
-    /// Records a delivery-queue job launched for this mission (#387).
+    /// Records a delivery-queue job launched for this mission (legacy bolph71656-ai/HTDT-Capture#387).
     public func associateDeliveryJob(
         recordID: String,
         deliveryJobID: String
@@ -1040,7 +1040,7 @@ public struct HTDTMissionInboxStore: Sendable {
 
     /// The embedded task plan, decoded from the verbatim stored
     /// payload — missions carry a plan; the plan inside is what the
-    /// capture pipeline imports (#386).
+    /// capture pipeline imports (legacy bolph71656-ai/HTDT-Capture#386).
     public func plan(for record: HTDTMissionRecord) throws
         -> HTDTCaptureTaskPlan
     {

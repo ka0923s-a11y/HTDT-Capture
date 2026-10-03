@@ -734,7 +734,7 @@ public enum DerivedARMeshMerge {
 /// of `finalized/`, `exports/`, `working/` and `diagnostics/` that the
 /// persisted-capture inventory never scans, so derived convenience
 /// outputs can never be mistaken for (or quarantined as) canonical
-/// bundle exports (issue #306).
+/// bundle exports (issue bolph71656-ai/HTDT-Capture#306).
 public enum DerivedExportRunner {
     public static func exportsDirectory(
         captureRoot: URL,

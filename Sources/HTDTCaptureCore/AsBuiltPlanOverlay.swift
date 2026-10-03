@@ -1,7 +1,7 @@
 import Foundation
 
 /// Plan-space overlay for the as-built verification surface
-/// (issue #293): planned HTDT targets rendered as ghost/reference
+/// (issue bolph71656-ai/HTDT-Capture#293): planned HTDT targets rendered as ghost/reference
 /// markers projected through the installed alignment authority,
 /// observed actuals, and planned→actual deviation connectors.
 ///

@@ -8,7 +8,7 @@ public extension UTType {
         conformingTo: .zip
     )
 
-    /// Capture Library portability container (issue #378): a
+    /// Capture Library portability container (issue bolph71656-ai/HTDT-Capture#378): a
     /// versioned package of `.htdtcapture` archives plus filtered
     /// app-local metadata and handoff receipts.
     static let htdtCaptureLibrary = UTType(
@@ -16,7 +16,7 @@ public extension UTType {
         conformingTo: .zip
     )
 
-    /// HTDT mission package (issue #457): the `.htdtmission`
+    /// HTDT mission package (issue bolph71656-ai/HTDT-Capture#457): the `.htdtmission`
     /// envelope/document the capture imports as a mission record.
     /// Imported (not exported) — the mission issuer owns the type.
     static let htdtMission = UTType(

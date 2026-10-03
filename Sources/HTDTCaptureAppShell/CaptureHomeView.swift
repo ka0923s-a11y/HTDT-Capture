@@ -7,7 +7,7 @@ import HTDTCapturePlatform
 import UIKit
 #endif
 
-/// Library filter for acquisition origin (#317): imported/received
+/// Library filter for acquisition origin (legacy bolph71656-ai/HTDT-Capture#317): imported/received
 /// captures are always visually distinct from device-created ones, so
 /// the filter narrows on that axis rather than on file presence.
 private enum CaptureOriginFilter: String, CaseIterable, Identifiable {
@@ -17,7 +17,7 @@ private enum CaptureOriginFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// Sidebar/detail selection for the capture-first home (#360/#362).
+/// Sidebar/detail selection for the capture-first home (legacy bolph71656-ai/HTDT-Capture#360/legacy bolph71656-ai/HTDT-Capture#362).
 /// A `NavigationSplitView` drives both layouts: collapsed on compact
 /// width it behaves as the normal push stack; on regular width the
 /// library stays visible beside the selected series detail.
@@ -31,30 +31,30 @@ private enum CaptureHomeSelection: Hashable {
     /// Device capability / permission diagnostics — detail level, not
     /// permanent top-level telemetry.
     case readiness
-    /// Issued HTDT missions awaiting/between capture runs (#386).
+    /// Issued HTDT missions awaiting/between capture runs (legacy bolph71656-ai/HTDT-Capture#386).
     case missions
-    /// QR-paired, identity-pinned HTDT receivers (#379).
+    /// QR-paired, identity-pinned HTDT receivers (legacy bolph71656-ai/HTDT-Capture#379).
     case destinations
-    /// Durable endpoint delivery queue (#387).
+    /// Durable endpoint delivery queue (legacy bolph71656-ai/HTDT-Capture#387).
     case deliveries
-    /// Support & Diagnostics center (#389): privacy-reviewed
+    /// Support & Diagnostics center (legacy bolph71656-ai/HTDT-Capture#389): privacy-reviewed
     /// diagnostic package export, independent of capture bundles.
     case diagnostics
-    /// App settings & storage controls (#338) — reachable from idle,
+    /// App settings & storage controls (legacy bolph71656-ai/HTDT-Capture#338) — reachable from idle,
     /// not only inside an active capture workflow.
     case settings
 }
 
 /// The pending delete-local-capture confirmation: which validated
 /// revision is selected, whether its canonical export slot exists,
-/// and how many descendant revisions declare it as parent (#396 —
+/// and how many descendant revisions declare it as parent (legacy bolph71656-ai/HTDT-Capture#396 —
 /// deleting a parent leaves their `parent_revision_id` refs
 /// unresolved, so the confirmation names the lineage cost).
 struct PendingCaptureDeletion: Equatable {
     let revisionID: CaptureRevisionID
     let includesExport: Bool
     var descendantCount: Int = 0
-    /// The same retention gate the series delete runs (#394):
+    /// The same retention gate the series delete runs (legacy bolph71656-ai/HTDT-Capture#394):
     /// blockers refuse the delete outright, warnings are advisory
     /// context shown in the confirmation.
     var blockers: [CaptureRetentionBlocker] = []
@@ -212,7 +212,7 @@ extension CaptureRetentionWarning {
     }
 }
 
-/// Identifiable target for the library-metadata editor sheet (#219):
+/// Identifiable target for the library-metadata editor sheet (legacy bolph71656-ai/HTDT-Capture#219):
 /// exactly one of `revisionID`/`seriesID` is set.
 struct LibraryMetadataEditorTarget: Identifiable {
     let revisionID: CaptureRevisionID?
@@ -225,7 +225,7 @@ struct LibraryMetadataEditorTarget: Identifiable {
 }
 
 /// Edits an operator-facing name + note for a capture revision or a
-/// whole series (#219). App-local metadata only — the capture bundle
+/// whole series (legacy bolph71656-ai/HTDT-Capture#219). App-local metadata only — the capture bundle
 /// on disk is never touched.
 struct LibraryMetadataEditor: View {
     let revisionID: CaptureRevisionID?
@@ -302,7 +302,7 @@ struct LibraryMetadataEditor: View {
 }
 
 /// The capture-first home and series-first capture library
-/// (#360/#362). Replaces the diagnostic `List` landing screen: the
+/// (legacy bolph71656-ai/HTDT-Capture#360/legacy bolph71656-ai/HTDT-Capture#362). Replaces the diagnostic `List` landing screen: the
 /// dominant actions are New capture and Import; device readiness and
 /// maintenance appear as contextual notices; the library's visual unit
 /// is the theater/series row, and each revision keeps one obvious
@@ -311,66 +311,66 @@ public struct CaptureHomeView: View {
     public let capabilities: CaptureCapabilityMatrix
     public let cameraPermission: CameraPermissionStatus?
     public let persistedInventory: PersistedCaptureInventoryResult
-    /// App-local capture names/notes/series metadata (#219).
+    /// App-local capture names/notes/series metadata (legacy bolph71656-ai/HTDT-Capture#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
-    /// #390: notice when a durable document was preserved instead of
+    /// legacy bolph71656-ai/HTDT-Capture#390: notice when a durable document was preserved instead of
     /// upgraded — its bytes are kept, never silently emptied.
     public let localStateUpgradeNotice: String?
-    /// #378: staged library-package import preview awaiting confirm.
+    /// legacy bolph71656-ai/HTDT-Capture#378: staged library-package import preview awaiting confirm.
     public let libraryImportPreview:
         CaptureLibraryImportPreview?
     /// The preview's commit is running — the sheet must not be
     /// swipe-dismissed while the importer still reads its staging
     /// directory.
     public let libraryImportCommitInFlight: Bool
-    /// #378: the `.htdtcapturelibrary` the host last wrote.
+    /// legacy bolph71656-ai/HTDT-Capture#378: the `.htdtcapturelibrary` the host last wrote.
     public let libraryExportURL: URL?
-    /// Read-only workspace for the persisted viewer (#294).
+    /// Read-only workspace for the persisted viewer (legacy bolph71656-ai/HTDT-Capture#294).
     public let persistedWorkspace: CaptureReviewWorkspaceModel?
     /// RoomPlan bindables for the persisted workspace's read-only
-    /// 3D scene and survey (#408/#409).
+    /// 3D scene and survey (legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409).
     public let persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject]
     /// The last persisted-workspace open failed — the pushed viewer
     /// shows a failure pane rather than a spinner that never ends.
     public let persistedWorkspaceLoadFailed: Bool
-    /// Handoff receipts (#225) — the historical send record the
-    /// retention previews cite (#394).
+    /// Handoff receipts (legacy bolph71656-ai/HTDT-Capture#225) — the historical send record the
+    /// retention previews cite (legacy bolph71656-ai/HTDT-Capture#394).
     public let handoffReceipts: [HTDTHandoffReceipt]
-    /// The full receipt ledger across every revision (#394) —
+    /// The full receipt ledger across every revision (legacy bolph71656-ai/HTDT-Capture#394) —
     /// retention previews consult it so receipts for revisions other
     /// than the adopted one are not invisible to delete previews.
     public let allHandoffReceipts: [HTDTHandoffReceipt]
-    /// App-local acquisition provenance per revision (#317):
+    /// App-local acquisition provenance per revision (legacy bolph71656-ai/HTDT-Capture#317):
     /// imported or received captures read differently from
     /// device-created ones everywhere the library surfaces them.
     public let captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord]
-    /// Mission inbox records (#386) and the active record id.
+    /// Mission inbox records (legacy bolph71656-ai/HTDT-Capture#386) and the active record id.
     public let missionRecords: [HTDTMissionRecord]
     public let activeMissionRecordID: String?
-    /// QR-paired HTDT receivers (#379).
+    /// QR-paired HTDT receivers (legacy bolph71656-ai/HTDT-Capture#379).
     public let pairedDestinations: [PairedHTDTDestination]
-    /// Durable delivery-queue jobs (#387).
+    /// Durable delivery-queue jobs (legacy bolph71656-ai/HTDT-Capture#387).
     public let deliveryJobs: [HTDTDeliveryJob]
-    /// Accepted cross-revision spatial registrations (#395).
+    /// Accepted cross-revision spatial registrations (legacy bolph71656-ai/HTDT-Capture#395).
     public let crossRevisionRegistrations:
         [CrossRevisionRegistration]
-    /// Replayed mission progress keyed by inbox record id (#397).
+    /// Replayed mission progress keyed by inbox record id (legacy bolph71656-ai/HTDT-Capture#397).
     public let missionProgressEvaluations:
         [String: MissionProgressEvaluation]
     /// Transient workflow status (`workingSetStatus` on the host):
     /// document-import outcomes are idle-only, so the home surface
     /// must render them or every import result is silently dropped.
     public let workingSetStatus: String?
-    /// First-launch practice prompt (#320): the host shows it once
+    /// First-launch practice prompt (legacy bolph71656-ai/HTDT-Capture#320): the host shows it once
     /// per install until dismissed; practice stays reachable from
     /// the landing surface either way.
     public let practicePromptShown: Bool
     /// App settings document backing the idle Settings surface.
     public let appSettings: CaptureAppSettings
     /// Host-managed equipment-catalog reference context, for the
-    /// settings surface's managed-contexts section (#338).
+    /// settings surface's managed-contexts section (legacy bolph71656-ai/HTDT-Capture#338).
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     public let actions: CaptureRootActions
 
@@ -382,23 +382,23 @@ public struct CaptureHomeView: View {
         LibraryMetadataEditorTarget?
     @State private var pendingDeletion: PendingCaptureDeletion?
     @State private var persistedViewerShown = false
-    /// Series whose retention preview sheet is open (#394).
+    /// Series whose retention preview sheet is open (legacy bolph71656-ai/HTDT-Capture#394).
     @State private var retentionSeriesID: CaptureSeriesID?
-    /// Series whose whole-series delete preview is open (#394).
+    /// Series whose whole-series delete preview is open (legacy bolph71656-ai/HTDT-Capture#394).
     @State private var pendingSeriesDeletion:
         CaptureSeriesID?
     /// The explicit protected-marks override for a series delete
-    /// (#394): armable only when the preview reports marked
+    /// (legacy bolph71656-ai/HTDT-Capture#394): armable only when the preview reports marked
     /// revisions.
     @State private var deleteSeriesIncludeProtected = false
     @State private var derived3DTarget: DerivedExportTarget?
     @State private var surveyReportTarget: DerivedExportTarget?
-    /// Draft pending discard confirmation (#437) — removing it is
+    /// Draft pending discard confirmation (legacy bolph71656-ai/HTDT-Capture#437) — removing it is
     /// irreversible, so the affordance confirms first.
     @State private var pendingDraftDiscard:
         RecoverableWorkingRevision?
     /// Disposable bounded decode cache for library-row previews
-    /// (#411) — tied to this view's lifetime, never authority.
+    /// (legacy bolph71656-ai/HTDT-Capture#411) — tied to this view's lifetime, never authority.
     @State private var thumbnailCache = SeriesThumbnailCache()
 
     public init(
@@ -487,7 +487,7 @@ public struct CaptureHomeView: View {
             else {
                 return
             }
-            // #393: the home importer uses the same inbound boundary
+            // legacy bolph71656-ai/HTDT-Capture#393: the home importer uses the same inbound boundary
             // as onOpenURL — the router identifies the kind.
             actions.importInboundDocument(url)
         }
@@ -607,7 +607,7 @@ public struct CaptureHomeView: View {
         } message: { pending in
             Text(pending.deletionDialogMessage)
         }
-        // #437: draft discard confirms — the removal is permanent.
+        // legacy bolph71656-ai/HTDT-Capture#437: draft discard confirms — the removal is permanent.
         .alert(
             "Discard the draft?",
             isPresented: Binding(
@@ -659,7 +659,7 @@ public struct CaptureHomeView: View {
                 }
             }
 
-            // #406: the landing answers "what next?" — one dominant
+            // legacy bolph71656-ai/HTDT-Capture#406: the landing answers "what next?" — one dominant
             // action card chosen by the Core presentation model,
             // never a stacked list of every possibility.
             Section {
@@ -717,7 +717,7 @@ public struct CaptureHomeView: View {
                     )
                     .accessibilityIdentifier("home.newCapture")
                 }
-                // #320 practice mode: a guided rehearsal of the real
+                // legacy bolph71656-ai/HTDT-Capture#320 practice mode: a guided rehearsal of the real
                 // scan → End → Review flow that can never produce a
                 // finalized bundle. Always reachable from the
                 // landing surface; the first-launch prompt is
@@ -806,7 +806,7 @@ public struct CaptureHomeView: View {
                         }
                     }
                     .foregroundStyle(.primary)
-                    // #437: a draft row also offers the discard
+                    // legacy bolph71656-ai/HTDT-Capture#437: a draft row also offers the discard
                     // path — the stranded-draft contract gives
                     // resume AND remove, never resume-only.
                     .contextMenu {
@@ -891,7 +891,7 @@ public struct CaptureHomeView: View {
                 }
             }
 
-            // #390: a durable document preserved instead of upgraded
+            // legacy bolph71656-ai/HTDT-Capture#390: a durable document preserved instead of upgraded
             // is surfaced once, plainly — its bytes were kept, never
             // silently emptied.
             if let localStateUpgradeNotice {
@@ -951,7 +951,7 @@ public struct CaptureHomeView: View {
 
             Section {
                 if filteredLibraryGroups.isEmpty {
-                    // #428: a filter that removes every series is a
+                    // legacy bolph71656-ai/HTDT-Capture#428: a filter that removes every series is a
                     // result-less filter, not an empty library — say
                     // so instead of claiming no captures exist.
                     Text(libraryEmptyLabel)
@@ -968,7 +968,7 @@ public struct CaptureHomeView: View {
                     }
                 }
             } header: {
-                // #406: the Library intent keeps its series-first
+                // legacy bolph71656-ai/HTDT-Capture#406: the Library intent keeps its series-first
                 // identity — header carries honest totals, not the
                 // full record dump.
                 HStack {
@@ -1051,7 +1051,7 @@ public struct CaptureHomeView: View {
                 }
             }
 
-            // #394: archived series leave the default view but keep
+            // legacy bolph71656-ai/HTDT-Capture#394: archived series leave the default view but keep
             // every revision, receipt and mission link — searchable
             // under their own section.
             if !archivedLibraryGroups.isEmpty {
@@ -1068,7 +1068,7 @@ public struct CaptureHomeView: View {
                 }
             }
 
-            // #406: the Send & connections intent — pairing,
+            // legacy bolph71656-ai/HTDT-Capture#406: the Send & connections intent — pairing,
             // transfers, and package export. The delivery badge
             // counts only actionable jobs.
             Section {
@@ -1127,7 +1127,7 @@ public struct CaptureHomeView: View {
                         )
                     }
                 }
-                // #378: one-tap whole-library package export; the
+                // legacy bolph71656-ai/HTDT-Capture#378: one-tap whole-library package export; the
                 // written `.htdtcapturelibrary` shares via the same
                 // affordance once the host publishes it.
                 Button {
@@ -1155,7 +1155,7 @@ public struct CaptureHomeView: View {
                 Text("Send & connections")
             }
 
-            // #406: device administration stays contextual —
+            // legacy bolph71656-ai/HTDT-Capture#406: device administration stays contextual —
             // readiness surfaces only when something needs a
             // decision; diagnostics is the always-available support
             // entry at the very bottom.
@@ -1219,7 +1219,7 @@ public struct CaptureHomeView: View {
         .modifier(LibrarySearchModifier(query: $libraryQuery))
     }
 
-    /// The Home IA v2 presentation model (issue #406): everything
+    /// The Home IA v2 presentation model (issue bolph71656-ai/HTDT-Capture#406): everything
     /// this surface shows — the dominant next action, the Work
     /// queue, per-intent badges — is derived in Core so the "what do
     /// I do next?" logic is unit-tested and can't drift from the
@@ -1260,7 +1260,7 @@ public struct CaptureHomeView: View {
         )
     }
 
-    /// #406 §5: readiness surfaces only on a real attention item —
+    /// legacy bolph71656-ai/HTDT-Capture#406 §5: readiness surfaces only on a real attention item —
     /// denied/restricted camera, or a device that can't scan.
     private var readinessAttentions:
         [HomeReadinessAttention]
@@ -1536,7 +1536,7 @@ public struct CaptureHomeView: View {
         selection = .series(record.captureSeriesID)
     }
 
-    /// Delivery queue row caption: honest counts by state (#387).
+    /// Delivery queue row caption: honest counts by state (legacy bolph71656-ai/HTDT-Capture#387).
     private var deliveryRowCaption: String {
         let pending = deliveryJobs.filter { !$0.isTerminal }
         if pending.isEmpty {
@@ -1561,7 +1561,7 @@ public struct CaptureHomeView: View {
     }
 
     /// Subtitle for the "Review latest capture" card: the series
-    /// name plus the finalized date — never the raw UUID (#441).
+    /// name plus the finalized date — never the raw UUID (legacy bolph71656-ai/HTDT-Capture#441).
     private func recentArtifactSubtitle(
         _ revisionID: CaptureRevisionID
     ) -> String {
@@ -1783,7 +1783,7 @@ public struct CaptureHomeView: View {
                 #endif
             }
         case .interruptedCapture:
-            // #437: reopens the first stranded draft into Review.
+            // legacy bolph71656-ai/HTDT-Capture#437: reopens the first stranded draft into Review.
             return {
                 if let draft =
                     persistedInventory.recoverableDrafts.first
@@ -1797,7 +1797,7 @@ public struct CaptureHomeView: View {
     }
 
     /// One series row: room/project identity first, then recency +
-    /// revision count + concise status — never the raw UUID (#360).
+    /// revision count + concise status — never the raw UUID (legacy bolph71656-ai/HTDT-Capture#360).
     private func seriesRow(
         _ group: CaptureSeriesGroup
     ) -> some View {
@@ -1876,7 +1876,7 @@ public struct CaptureHomeView: View {
     }
 
     /// Whether a library record matches the selected origin filter
-    /// (#317). Records with no origin entry count as device-created
+    /// (legacy bolph71656-ai/HTDT-Capture#317). Records with no origin entry count as device-created
     /// under `.all`/`.device` — pre-tracking captures surface as
     /// "origin unknown" rather than silently claiming local
     /// provenance.
@@ -1899,7 +1899,7 @@ public struct CaptureHomeView: View {
         }
     }
 
-    /// #428: an origin or search filter that removes every series is
+    /// legacy bolph71656-ai/HTDT-Capture#428: an origin or search filter that removes every series is
     /// a result-less filter, not an empty library.
     private var libraryEmptyLabel: String {
         libraryGroups.isEmpty
@@ -1907,7 +1907,7 @@ public struct CaptureHomeView: View {
             : String(localized: "No captures match this filter")
     }
 
-    /// #428: under an active origin filter the row names the series'
+    /// legacy bolph71656-ai/HTDT-Capture#428: under an active origin filter the row names the series'
     /// match scope — a partially-matching series is mixed-origin, and
     /// when exactly one revision matched the row says which. Every
     /// revision carrying the filter's origin still resolves inside
@@ -1942,7 +1942,7 @@ public struct CaptureHomeView: View {
         )
     }
 
-    /// #394: archived series are filtered out of the default list
+    /// legacy bolph71656-ai/HTDT-Capture#394: archived series are filtered out of the default list
     /// into their own section; archiving never changes which
     /// revisions exist, only where they are listed.
     private var activeLibraryGroups: [CaptureSeriesGroup] {
@@ -2007,7 +2007,7 @@ private struct LibrarySearchModifier: ViewModifier {
     }
 }
 
-/// Detail column for one capture series (#360 §3.4): series name +
+/// Detail column for one capture series (legacy bolph71656-ai/HTDT-Capture#360 §3.4): series name +
 /// revision count up top, the latest revision's primary Open action,
 /// history below; secondary and destructive actions live in
 /// context/swipe menus, never as peer primary buttons.
@@ -2016,14 +2016,14 @@ private struct CaptureSeriesDetailView: View {
     let libraryMetadata: CaptureLibraryMetadataDocument
     let persistedWorkspace: CaptureReviewWorkspaceModel?
     /// RoomPlan bindables for the persisted viewer's read-only
-    /// 3D scene and survey (#408/#409).
+    /// 3D scene and survey (legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409).
     let persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject]
     /// The last persisted-workspace open failed — the pushed viewer
     /// shows a failure pane rather than a spinner that never ends.
     let persistedWorkspaceLoadFailed: Bool
     /// Every persisted record — the retention previews read
-    /// cross-series lineage (parents) from it (#394).
+    /// cross-series lineage (parents) from it (legacy bolph71656-ai/HTDT-Capture#394).
     let allRecords: [PersistedCaptureRecord]
     let deliveryJobs: [HTDTDeliveryJob]
     let missionRecords: [HTDTMissionRecord]
@@ -2039,16 +2039,16 @@ private struct CaptureSeriesDetailView: View {
     let captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord]
     /// Accepted cross-revision registrations — candidate transform
-    /// authorities presented on the detail column (#395); endpoints
+    /// authorities presented on the detail column (legacy bolph71656-ai/HTDT-Capture#395); endpoints
     /// are drawn from `allRecords`.
     let crossRevisionRegistrations:
         [CrossRevisionRegistration]
     let actions: CaptureRootActions
 
-    /// Pending registration flow (#395): the revision the operator
+    /// Pending registration flow (legacy bolph71656-ai/HTDT-Capture#395): the revision the operator
     /// chose to align, the picked counterpart, the inspected proposal,
     /// and any failure text.
-    /// Confirmed archive-copy deletion (#251): derived bytes go
+    /// Confirmed archive-copy deletion (legacy bolph71656-ai/HTDT-Capture#251): derived bytes go
     /// through the same two-step pattern every permanent removal
     /// takes — the canonical capture is untouched.
     @State private var pendingArchiveDeletion:
@@ -2063,7 +2063,7 @@ private struct CaptureSeriesDetailView: View {
     @State private var registrationBusy = false
     @State private var registrationSheetShown = false
 
-    /// The revision the "Latest" surface presents (#396): the stored
+    /// The revision the "Latest" surface presents (legacy bolph71656-ai/HTDT-Capture#396): the stored
     /// preferred head when the graph is branched and the pick is
     /// still valid, the single head otherwise, or nil while a branch
     /// has no accepted pick — newest `finalized_at` never wins on its
@@ -2172,7 +2172,7 @@ private struct CaptureSeriesDetailView: View {
                                 seriesID: group.captureSeriesID
                             )
                     }
-                    // #394: archive removes the series from the
+                    // legacy bolph71656-ai/HTDT-Capture#394: archive removes the series from the
                     // default library without touching a single
                     // bundle byte; unarchive restores it.
                     if seriesArchived {
@@ -2190,7 +2190,7 @@ private struct CaptureSeriesDetailView: View {
                             )
                         }
                     }
-                    // #394: the retention preview — bytes,
+                    // legacy bolph71656-ai/HTDT-Capture#394: the retention preview — bytes,
                     // recommendations, blockers — before any delete
                     // affordance exists.
                     Button("Review storage…") {
@@ -2255,7 +2255,7 @@ private struct CaptureSeriesDetailView: View {
         )
     }
 
-    /// One branch head in the heads section (#396): the same identity
+    /// One branch head in the heads section (legacy bolph71656-ai/HTDT-Capture#396): the same identity
     /// treatment as a revision row plus a preferred marker and the
     /// prefer action — the pick writes app-local metadata only.
     private func headRow(
@@ -2304,7 +2304,7 @@ private struct CaptureSeriesDetailView: View {
         }
     }
 
-    /// Cross-revision spatial registration surface (#395): accepted
+    /// Cross-revision spatial registration surface (legacy bolph71656-ai/HTDT-Capture#395): accepted
     /// registrations involving this series, the resolved path between
     /// every head pair (direct vs chained, with accumulated
     /// uncertainty), and the explicit register action.
@@ -2394,7 +2394,7 @@ private struct CaptureSeriesDetailView: View {
 
     /// Resolved transform path between two branch heads — direct
     /// edge, chained path with accumulated uncertainty, or an honest
-    /// "no registered path" (#395).
+    /// "no registered path" (legacy bolph71656-ai/HTDT-Capture#395).
     private func headPathRow(
         from source: PersistedCaptureRecord,
         to target: PersistedCaptureRecord,
@@ -2436,7 +2436,7 @@ private struct CaptureSeriesDetailView: View {
         }
     }
 
-    /// The register-a-spatial-link flow (#395): pick source and
+    /// The register-a-spatial-link flow (legacy bolph71656-ai/HTDT-Capture#395): pick source and
     /// target revisions, inspect the proposed transform's residuals,
     /// then explicitly accept — never registered silently.
     @ViewBuilder
@@ -2667,7 +2667,7 @@ private struct CaptureSeriesDetailView: View {
 
     /// One revision row: human identity + concise status + storage,
     /// one primary Open action, everything else in the context menu
-    /// or swipe actions (#360 §3.3).
+    /// or swipe actions (legacy bolph71656-ai/HTDT-Capture#360 §3.3).
     private func revisionRow(
         _ record: PersistedCaptureRecord,
         isLatest: Bool
@@ -2774,7 +2774,7 @@ private struct CaptureSeriesDetailView: View {
         }
     }
 
-    /// #394: the revision's importance marks — milestone,
+    /// legacy bolph71656-ai/HTDT-Capture#394: the revision's importance marks — milestone,
     /// keep-local, favorite, pinned. Toggles write through the
     /// metadata store; a marked revision is skipped by any delete
     /// unless the operator explicitly overrides.
@@ -2851,7 +2851,7 @@ private struct CaptureSeriesDetailView: View {
         }
     }
 
-    /// Acquisition-provenance badge for a row (#317): device
+    /// Acquisition-provenance badge for a row (legacy bolph71656-ai/HTDT-Capture#317): device
     /// captures carry their ordinary label; anything imported or
     /// received is additionally color-distinguished so external
     /// bundles never read as device-created.
@@ -2894,7 +2894,7 @@ private struct CaptureSeriesDetailView: View {
     }
 
     /// Secondary/destructive revision actions — present but visually
-    /// subordinate until invoked (#360 §3.3).
+    /// subordinate until invoked (legacy bolph71656-ai/HTDT-Capture#360 §3.3).
     @ViewBuilder
     private func revisionMenu(
         _ record: PersistedCaptureRecord
@@ -2944,7 +2944,7 @@ private struct CaptureSeriesDetailView: View {
                     seriesID: nil
                 )
         }
-        // #394: importance marks protect the revision in retention
+        // legacy bolph71656-ai/HTDT-Capture#394: importance marks protect the revision in retention
         // previews and block delete unless the operator arms the
         // explicit override.
         revisionMarksMenu(record)
@@ -2978,7 +2978,7 @@ private struct CaptureSeriesDetailView: View {
         {
             // The archive is a derived copy: it can be deleted
             // without touching the canonical finalized capture
-            // (#251).
+            // (legacy bolph71656-ai/HTDT-Capture#251).
             Button("Delete archive copy") {
                 pendingArchiveDeletion = record
             }
@@ -3003,7 +3003,7 @@ private struct CaptureSeriesDetailView: View {
 }
 
 /// Bounded maintenance list for quarantined artifacts, orphaned
-/// working data, and enumeration failures (#360 §7): these stay
+/// working data, and enumeration failures (legacy bolph71656-ai/HTDT-Capture#360 §7): these stay
 /// reachable but out of the normal theater library.
 private struct CaptureLibraryMaintenanceView: View {
     let inventory: PersistedCaptureInventoryResult
@@ -3240,7 +3240,7 @@ private struct CaptureLibraryMaintenanceView: View {
     }
 }
 
-/// Detail-level device readiness (#360 §5): capability/permission
+/// Detail-level device readiness (legacy bolph71656-ai/HTDT-Capture#360 §5): capability/permission
 /// diagnostics live here instead of permanent landing rows. Problems
 /// still surface directly on Home as notices.
 private struct CaptureDeviceReadinessView: View {
@@ -3322,7 +3322,7 @@ private struct CaptureDeviceReadinessView: View {
     }
 }
 
-/// The staged `.htdtcapturelibrary` import preview (issue #378):
+/// The staged `.htdtcapturelibrary` import preview (issue bolph71656-ai/HTDT-Capture#378):
 /// every manifest entry with its disposition — new, duplicate,
 /// conflict, or invalid — plus the metadata-merge and receipt
 /// counts the commit would apply. Commit is explicit; nothing here
@@ -3485,7 +3485,7 @@ private struct CaptureLibraryImportPreviewView: View {
     }
 }
 
-/// Per-revision retention preview for one series (issue #394):
+/// Per-revision retention preview for one series (issue bolph71656-ai/HTDT-Capture#394):
 /// latest + marked revisions recommend keep, every byte class is
 /// listed separately, blockers and warnings are named before any
 /// delete action exists — the derived-archives-only cleanup is
@@ -3705,7 +3705,7 @@ private struct CaptureSeriesRetentionView: View {
                     }
                 }
                 Section {
-                    // The safest first suggestion (#394): derived
+                    // The safest first suggestion (legacy bolph71656-ai/HTDT-Capture#394): derived
                     // archive copies leave nothing unrecoverable —
                     // the canonical finalized bundles stay.
                     Button("Delete derived archives only") {
@@ -3754,7 +3754,7 @@ private struct CaptureSeriesRetentionView: View {
     }
 }
 
-/// The whole-series delete preview (issue #394): revision count,
+/// The whole-series delete preview (issue bolph71656-ai/HTDT-Capture#394): revision count,
 /// finalized + derived bytes, per-revision blockers, and the
 /// protected-marks override — explicit and dependency-aware before
 /// anything leaves the device.

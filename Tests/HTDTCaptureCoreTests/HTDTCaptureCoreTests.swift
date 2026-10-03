@@ -39,7 +39,7 @@ func reviewCanReturnToScanningBeforeAuthorityIsSealed() throws {
     #expect(machine.lastFailure == nil)
 }
 
-/// Issue #101: after a Review -> Scanning reopen, the same capture must
+/// Issue bolph71656-ai/HTDT-Capture#101: after a Review -> Scanning reopen, the same capture must
 /// be able to End again and walk the ordinary authority path — a later
 /// Review can still annotate and finalize. No phantom revision or
 /// terminal edge is introduced by the round trip.
@@ -61,7 +61,7 @@ func reviewReopenRoundTripKeepsLaterAuthorityTransitions() throws {
     #expect(machine.state == .finalized)
 }
 
-/// Issue #101/#102: the reopen edge exists only while Review is live.
+/// Issue bolph71656-ai/HTDT-Capture#101/legacy bolph71656-ai/HTDT-Capture#102: the reopen edge exists only while Review is live.
 /// Every other state must reject `.resumeScanning` so a reopen cannot
 /// be smuggled past annotation, validation, or terminal authority.
 @Test
@@ -119,7 +119,7 @@ func failureAndResetAreExplicit() throws {
 
 @Test
 func unresolvedRoomPlanEndTimeoutIsBoundedAndWarnsFirst() {
-    // #96: a lost RoomPlan completion callback must never leave the
+    // legacy bolph71656-ai/HTDT-Capture#96: a lost RoomPlan completion callback must never leave the
     // capture UI locked in `isEndingScan` — the wait has a hard bound
     // and the operator warning is observable before termination.
     let policy = RoomPlanEndTimeoutPolicy()
@@ -132,7 +132,7 @@ func unresolvedRoomPlanEndTimeoutIsBoundedAndWarnsFirst() {
 
 @Test
 func unresolvedRoomPlanEndTerminatesFailedNotPseudoScanning() throws {
-    // #96: when no correlated RoomPlan completion arrives inside the
+    // legacy bolph71656-ai/HTDT-Capture#96: when no correlated RoomPlan completion arrives inside the
     // bounded window the host resolves the attempt as a precise
     // terminal failure — never storage/persistence — and the capture
     // cannot silently return to scanning or reviewing without an
@@ -235,7 +235,7 @@ func bundleCollisionKeyUsesUnicodeCaseFolding() {
 
 @Test
 func bundleCollisionKeyNormalizesNFCBeforeCaseFolding() {
-    // #95: an NFD spelling must land on the same NFC + case-fold key
+    // legacy bolph71656-ai/HTDT-Capture#95: an NFD spelling must land on the same NFC + case-fold key
     // as its composed equivalent, matching the Python reference
     // validator's normalize("NFC", path).casefold() authority.
     #expect(

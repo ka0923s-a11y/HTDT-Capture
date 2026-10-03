@@ -1,7 +1,7 @@
 # Vision Iterative Segmentation + Depth Fusion Record
 
 Status: In progress  
-Issue: #269 (parent #266)
+Issue: legacy bolph71656-ai/HTDT-Capture#269 (parent legacy bolph71656-ai/HTDT-Capture#266)
 
 ## Implemented
 
@@ -69,7 +69,7 @@ Issue: #269 (parent #266)
   selection); there is no frame-rate or timer re-run.
   `SegmentationRunPolicy.viewChangeIsMaterial` gates a re-seed after
   a completed attempt; Vision work runs in a detached task off the
-  AR delegate path and cancels under the #273 memory-pressure flag.
+  AR delegate path and cancels under the legacy bolph71656-ai/HTDT-Capture#273 memory-pressure flag.
 - Persistence — masks exist only as derived evidence:
   - `ObjectSegmentationObservation` records the issue's field list
     verbatim (seed kind + coordinates, refinement points/count,

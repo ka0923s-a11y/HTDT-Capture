@@ -6,7 +6,7 @@ public struct WiringRouteID: CaptureIdentifier {
 }
 
 /// The physical endpoint kind a wiring route terminates at (issue
-/// #324). Enumerated machine semantics — speaker/subwoofer, the
+/// legacy bolph71656-ai/HTDT-Capture#324). Enumerated machine semantics — speaker/subwoofer, the
 /// electronics chain, rack/wall-plate termination hardware, or a
 /// user-defined service point — never a display label.
 public enum WiringTerminationKind: String, Codable, Sendable,
@@ -26,7 +26,7 @@ public enum WiringTerminationKind: String, Codable, Sendable,
 }
 
 /// One exact physical termination endpoint of a cable route (issue
-/// #324). An endpoint is identified by at least one of: an exact
+/// legacy bolph71656-ai/HTDT-Capture#324). An endpoint is identified by at least one of: an exact
 /// `binding_ref` to a committed authority (`entity:<uuid>`,
 /// `inventory_item:<uuid>`, `equipment:<id>`), a captured world-space
 /// position (`world_from_endpoint` + `coordinate_space_id`), or an
@@ -98,7 +98,7 @@ public struct WiringTermination: Codable, Sendable, Equatable {
     }
 }
 
-/// How a route segment's geometry was obtained (issue #324). The
+/// How a route segment's geometry was obtained (issue bolph71656-ai/HTDT-Capture#324). The
 /// observed/estimated/hidden-unknown split is explicit:
 /// `hidden_unknown` sections are *known to be unknown* — concealed
 /// in-wall paths the operator cannot see — and never carry waypoints.
@@ -114,7 +114,7 @@ public enum WiringSegmentObservation: String, Codable, Sendable {
     case hiddenUnknown = "hidden_unknown"
 }
 
-/// One ordered segment of a wiring route (issue #324). `waypoints` is
+/// One ordered segment of a wiring route (issue bolph71656-ai/HTDT-Capture#324). `waypoints` is
 /// the operator-authored polyline in the capture coordinate space
 /// (captured per point with the reticle or entered as a top-down X/Z
 /// course); a `surface_ref` may associate the segment with a surface
@@ -177,7 +177,7 @@ public struct WiringSegment: Codable, Sendable, Equatable {
     }
 }
 
-/// Recording state of a route (issue #324): `planned` intent,
+/// Recording state of a route (issue bolph71656-ai/HTDT-Capture#324): `planned` intent,
 /// `estimated` from partial observation, or `observed_as_built` for
 /// the physically verified install. A planned route and its as-built
 /// counterpart are separate records sharing endpoints — both histories
@@ -189,7 +189,7 @@ public enum WiringRouteState: String, Codable, Sendable, CaseIterable {
 }
 
 /// One cable/termination route between two exact endpoints (issue
-/// #324). Wire centerline is the ordered `segments` polyline between
+/// legacy bolph71656-ai/HTDT-Capture#324). Wire centerline is the ordered `segments` polyline between
 /// `endpoint_a` and `endpoint_b`; lengths distinguish measured
 /// (observed) from estimated slack/service-loop values so they are
 /// never conflated. This record never claims knowledge of concealed
@@ -323,7 +323,7 @@ public struct AsBuiltWiringRoute: Codable, Sendable, Equatable {
     }
 }
 
-/// The derived `derived/wiring-routes.json` payload (issue #324):
+/// The derived `derived/wiring-routes.json` payload (issue bolph71656-ai/HTDT-Capture#324):
 /// every recorded cable route for the revision. Logical HTDT routing
 /// is a separate concern — this is the physical wiring record only.
 public struct AsBuiltWiringDocument: Codable, Sendable, Equatable {

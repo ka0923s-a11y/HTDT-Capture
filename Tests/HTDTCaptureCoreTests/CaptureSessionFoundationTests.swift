@@ -652,7 +652,7 @@ extension CaptureSessionFoundationTests {
     }
 }
 
-// MARK: - Accepted Review boundary regression coverage (#101, #104, #105)
+// MARK: - Accepted Review boundary regression coverage (legacy bolph71656-ai/HTDT-Capture#101, legacy bolph71656-ai/HTDT-Capture#104, legacy bolph71656-ai/HTDT-Capture#105)
 
 extension CaptureSessionFoundationTests {
     private func makeFoundationPackage(
@@ -733,7 +733,7 @@ extension CaptureSessionFoundationTests {
         return (store, context, lineage)
     }
 
-    /// #101: the Review rollback removes canonical files only when they
+    /// legacy bolph71656-ai/HTDT-Capture#101: the Review rollback removes canonical files only when they
     /// match the accepted transaction byte-for-byte. A tampered raw
     /// RoomPlan payload must fail closed: nothing is removed and the
     /// accepted in-memory authority stays intact for diagnosis or
@@ -804,7 +804,7 @@ extension CaptureSessionFoundationTests {
         )
     }
 
-    /// #101: rollback is defined only for a committed accepted End
+    /// legacy bolph71656-ai/HTDT-Capture#101: rollback is defined only for a committed accepted End
     /// transaction. Before it exists — and after it was already rolled
     /// back — the call fails closed instead of inventing removals.
     func testAcceptedEndRollbackRequiresCommittedEndTransaction()
@@ -901,7 +901,7 @@ extension CaptureSessionFoundationTests {
         }
     }
 
-    /// #101: `removeOwnedMesh` is only valid when the accepted End
+    /// legacy bolph71656-ai/HTDT-Capture#101: `removeOwnedMesh` is only valid when the accepted End
     /// actually committed mesh authority. Requesting mesh removal
     /// without an owned mesh fails closed and keeps the accepted
     /// transaction intact for a corrected retry.
@@ -955,7 +955,7 @@ extension CaptureSessionFoundationTests {
         )
     }
 
-    /// #104/#105: preserved-Review provenance is persisted at warning
+    /// legacy bolph71656-ai/HTDT-Capture#104/legacy bolph71656-ai/HTDT-Capture#105: preserved-Review provenance is persisted at warning
     /// severity, so transient background/thermal/storage pressure
     /// recorded after an accepted End stays visible in the quality
     /// record without permanently blocking finalization readiness.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Review/task state a plan marker carries (issue #367): separate from
+/// Review/task state a plan marker carries (issue bolph71656-ai/HTDT-Capture#367): separate from
 /// the marker's geometric category so color can support — never
 /// replace — the shape grammar. Maps onto the frozen
 /// `CaptureSemanticStatus` vocabulary for rendering.
@@ -32,7 +32,7 @@ public enum PlanMarkerReviewStatus: String, Sendable, Equatable,
 }
 
 /// Composition rules that turn the committed review workspace into
-/// plan markers (issue #367): annotations, opening candidates, and the
+/// plan markers (issue bolph71656-ai/HTDT-Capture#367): annotations, opening candidates, and the
 /// room reference frame overlay the RoomPlan-derived base plan. Pure
 /// geometry — no SwiftUI — so selection hit-testing and the
 /// accessibility summary stay unit-testable.
@@ -154,7 +154,7 @@ public enum ReviewPlanPresentation {
                         // `sourceRef` IS the dedup key: RoomPlan-derived
                         // candidates share it with the raw plan marker,
                         // so the reviewed candidate replaces the raw
-                        // dot rather than double-drawing (#367).
+                        // dot rather than double-drawing (legacy bolph71656-ai/HTDT-Capture#367).
                         identifier: opening.sourceRef,
                         linkedItemID: opening.openingID.description,
                         selectable: true,
@@ -166,7 +166,7 @@ public enum ReviewPlanPresentation {
             }
         }
 
-        // Subject-point field-note anchors (issue #421): a
+        // Subject-point field-note anchors (issue bolph71656-ai/HTDT-Capture#421): a
         // restrained marker per anchored note — viewpoint anchors
         // never render, and one note contributes exactly one pin.
         for note in model.fieldNotes {
@@ -240,7 +240,7 @@ public enum ReviewPlanPresentation {
 
     /// Selectable markers within `tolerance` (meters, plan space) of a
     /// tap point, nearest first — the disambiguation ordering the
-    /// surface presents when several markers overlap (issue #367).
+    /// surface presents when several markers overlap (issue bolph71656-ai/HTDT-Capture#367).
     public static func hitTest(
         markers: [RoomPlanPreviewModel.PlanMarker],
         at point: (x: Double, z: Double),
@@ -262,7 +262,7 @@ public enum ReviewPlanPresentation {
             }
     }
 
-    /// The VoiceOver summary of the plan surface (issue #367 RVIS-80):
+    /// The VoiceOver summary of the plan surface (issue bolph71656-ai/HTDT-Capture#367 RVIS-80):
     /// counts + front-direction confirmation, one sentence, never raw
     /// IDs. Returns nil when nothing is drawn.
     public static func accessibilitySummary(

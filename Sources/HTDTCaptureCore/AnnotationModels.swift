@@ -48,12 +48,12 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
     case referencePoint = "reference_point"
     /// An acoustic measurement microphone/capsule reference point used
     /// for a measurement campaign; distinct from `listening_position`
-    /// even when they spatially coincide (issue #271).
+    /// even when they spatially coincide (issue bolph71656-ai/HTDT-Capture#271).
     case measurementPoint = "measurement_point"
     case custom
 
     /// The reference-point semantics the manual builder assigns when
-    /// the caller does not name the point actually authored (#291).
+    /// the caller does not name the point actually authored (legacy bolph71656-ai/HTDT-Capture#291).
     public var defaultReferenceSemantics: ReferencePointSemantics {
         switch self {
         case .speaker, .subwoofer:
@@ -80,7 +80,7 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
     /// means unrestricted (`.custom`); an empty intersection is
     /// impossible because every entry contains the default. Acoustic
     /// center is deliberately absent: it is governed by the separate
-    /// `acoustic_center` authority (#234) and is never a placement
+    /// `acoustic_center` authority (legacy bolph71656-ai/HTDT-Capture#234) and is never a placement
     /// label.
     public var allowedReferenceSemantics: Set<ReferencePointSemantics>? {
         switch self {
@@ -113,7 +113,7 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
     }
 
     /// Whether a captured body/plane orientation may be attached to
-    /// this type (#230, #244). Pure point authorities — listening
+    /// this type (legacy bolph71656-ai/HTDT-Capture#230, legacy bolph71656-ai/HTDT-Capture#244). Pure point authorities — listening
     /// positions and reference points — have no orientation semantics
     /// in v1.
     public var supportsOrientationAuthority: Bool {
@@ -200,7 +200,7 @@ public struct ReferencePointSemantics: RawRepresentable, Codable, Hashable,
         Self(rawValue: "seat_reference_point")!
     public static let userReferencePoint =
         Self(rawValue: "user_reference_point")!
-    /// Projector body/cabinet reference point (#230). The projector
+    /// Projector body/cabinet reference point (legacy bolph71656-ai/HTDT-Capture#230). The projector
     /// type keeps the body point distinct from the optical/lens
     /// reference so downstream HTDT does not conflate mount placement
     /// with the lens position.
@@ -212,7 +212,7 @@ public struct ReferencePointSemantics: RawRepresentable, Codable, Hashable,
         Self(rawValue: "microphone_capsule")!
 
     /// The standard tokens defined by this contract version — the
-    /// namespace-policy authority for #344.
+    /// namespace-policy authority for legacy bolph71656-ai/HTDT-Capture#344.
     public static let standardSet: Set<String> = [
         "cabinet_reference_point", "acoustic_center", "ear_center",
         "screen_center", "display_center", "seat_reference_point",
@@ -226,7 +226,7 @@ public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
     public let equipmentVersion: String
     public let equipmentHash: EvidenceSHA256
     /// Which equipment-catalog authority contract this tuple was
-    /// selected under (#237). `nil` means a v1 bundle written before
+    /// selected under (legacy bolph71656-ai/HTDT-Capture#237). `nil` means a v1 bundle written before
     /// the versioned taxonomy existed and is interpreted as the
     /// acoustic-source catalog contract
     /// (`HTDTEquipmentCatalogSnapshot.expectedAuthorityVersion`).
@@ -312,16 +312,16 @@ public enum AnnotationModelError: Error, Sendable, Equatable {
     case incompatibleEquipmentReference
     case unknownEquipmentAuthority
     case invalidReferencePointSemantics
-    /// Lineage fields are contradictory or malformed (#303).
+    /// Lineage fields are contradictory or malformed (legacy bolph71656-ai/HTDT-Capture#303).
     case invalidEntityLineage
     /// An open-vocabulary token is neither standard nor custom-scoped
-    /// (#344) — rejected on v1.1.0+ payloads.
+    /// (legacy bolph71656-ai/HTDT-Capture#344) — rejected on v1.1.0+ payloads.
     case unscopedCustomToken
     /// The document claims a schema_version this contract does not
-    /// support (#332).
+    /// support (legacy bolph71656-ai/HTDT-Capture#332).
     case unsupportedSchemaVersion
     /// A semantic relation record violates the shared graph invariants
-    /// (#333).
+    /// (legacy bolph71656-ai/HTDT-Capture#333).
     case invalidSemanticRelation
 }
 
@@ -686,7 +686,7 @@ public struct ChannelRole: RawRepresentable, Codable, Hashable, Sendable,
     public static let topMiddleRight = Self(rawValue: "TMR")!
     public static let topRearLeft = Self(rawValue: "TRL")!
     public static let topRearRight = Self(rawValue: "TRR")!
-    /// Convenience tokens for multi-subwoofer topology (#244). The
+    /// Convenience tokens for multi-subwoofer topology (legacy bolph71656-ai/HTDT-Capture#244). The
     /// token set stays open — any `[A-Z0-9_]+` role is valid — so no
     /// particular AVR naming convention is baked into the schema.
     public static let lfe1 = Self(rawValue: "LFE1")!
@@ -695,7 +695,7 @@ public struct ChannelRole: RawRepresentable, Codable, Hashable, Sendable,
     public static let lfe4 = Self(rawValue: "LFE4")!
 
     /// The standard tokens defined by this contract version — the
-    /// namespace-policy authority for #344.
+    /// namespace-policy authority for legacy bolph71656-ai/HTDT-Capture#344.
     public static let standardSet: Set<String> = [
         "L", "C", "R", "SL", "SR", "SBL", "SBR", "LFE",
         "TFL", "TFR", "TML", "TMR", "TRL", "TRR",
@@ -703,7 +703,7 @@ public struct ChannelRole: RawRepresentable, Codable, Hashable, Sendable,
     ]
 }
 
-/// Typed listening-position role (#243). A `listening_position`
+/// Typed listening-position role (legacy bolph71656-ai/HTDT-Capture#243). A `listening_position`
 /// annotation's acoustic intent is machine-readable without parsing
 /// the human label; a nil role on a stored entity means the record
 /// predates role semantics (legacy/unknown).
@@ -723,7 +723,7 @@ public enum ListeningPositionRole:
 }
 
 /// Where the numbers in `SpatialUncertaintyAuthority` come from
-/// (#258). User/instrument-stated tolerances must remain distinct
+/// (legacy bolph71656-ai/HTDT-Capture#258). User/instrument-stated tolerances must remain distinct
 /// from app-estimated quality; the app never fabricates a numeric
 /// uncertainty from ARKit APIs.
 public enum SpatialUncertaintyBasis: String, Codable, Sendable {
@@ -734,7 +734,7 @@ public enum SpatialUncertaintyBasis: String, Codable, Sendable {
 }
 
 /// Optional quantitative uncertainty for an annotation's spatial
-/// authority (#258). Every component is independently optional; at
+/// authority (legacy bolph71656-ai/HTDT-Capture#258). Every component is independently optional; at
 /// least one must be present. Absence is explicitly unknown, never
 /// zero.
 public struct SpatialUncertaintyAuthority: Codable, Sendable, Equatable {
@@ -829,7 +829,7 @@ public struct SpatialUncertaintyAuthority: Codable, Sendable, Equatable {
     }
 }
 
-/// Provenance of an entity's physical envelope dimensions (#230).
+/// Provenance of an entity's physical envelope dimensions (legacy bolph71656-ai/HTDT-Capture#230).
 /// Manually measured dimensions must stay distinct from
 /// catalog-derived ones so a confident-looking size can never
 /// silently pose as measured authority.
@@ -841,7 +841,7 @@ public enum EnvelopeProvenance: String, Codable, Sendable {
     case other
 }
 
-/// Bounded physical-envelope authority for an annotation (#230):
+/// Bounded physical-envelope authority for an annotation (legacy bolph71656-ai/HTDT-Capture#230):
 /// width/height/depth where applicable, each independently optional,
 /// with explicit provenance. Never inferred by the app — only
 /// operator-measured, catalog-derived, imported, or otherwise
@@ -922,7 +922,7 @@ public struct EntityPhysicalEnvelope: Codable, Sendable, Equatable {
     }
 }
 
-/// How the authored reference point was actually constructed (#291).
+/// How the authored reference point was actually constructed (legacy bolph71656-ai/HTDT-Capture#291).
 /// The contract distinguishes a surface hit that merely exists from a
 /// semantic point the operator explicitly confirmed or constructed —
 /// an `ear_center` cannot silently coincide with an arbitrary wall or
@@ -947,7 +947,7 @@ public enum ReferencePointConstruction:
     case importedReference = "imported_reference"
 }
 
-/// Authority record for the entity's reference point (#291): how the
+/// Authority record for the entity's reference point (legacy bolph71656-ai/HTDT-Capture#291): how the
 /// semantic point was constructed, the applied offset when derived
 /// from a surface, and the evidence that supports the construction.
 public struct ReferencePointAuthority: Codable, Sendable, Equatable {
@@ -1013,7 +1013,7 @@ public struct ReferencePointAuthority: Codable, Sendable, Equatable {
 }
 
 /// Verification state plus the exact evidence/source for one
-/// component of an annotation's authority (#263).
+/// component of an annotation's authority (legacy bolph71656-ai/HTDT-Capture#263).
 public struct AnnotationComponentAuthority: Codable, Sendable, Equatable {
     public let state: AnnotationVerificationState
     public let evidenceRefs: [String]
@@ -1078,7 +1078,7 @@ public struct AnnotationComponentAuthority: Codable, Sendable, Equatable {
     }
 }
 
-/// Per-component authority for an annotation (#263). The aggregate
+/// Per-component authority for an annotation (legacy bolph71656-ai/HTDT-Capture#263). The aggregate
 /// `verification_state` stays as the legacy summary; this record says
 /// which fields are actually evidence-backed so a mixed record can
 /// never overstate itself. Components not listed carry the legacy
@@ -1132,7 +1132,7 @@ public struct AnnotationAuthorityComponents:
     }
 }
 
-/// Versioned lifecycle metadata for an annotation (#267): when the
+/// Versioned lifecycle metadata for an annotation (legacy bolph71656-ai/HTDT-Capture#267): when the
 /// entity was authored, last revised, and — when known — spatially
 /// observed, plus supersedure. All timestamps are canonical UTC
 /// RFC3339 text (`SchemaTimestampText`); nothing is fabricated for
@@ -1222,7 +1222,7 @@ public struct AnnotationLifecycle: Codable, Sendable, Equatable {
 }
 
 /// A pointer to an entity record committed in an earlier capture
-/// revision of the same capture series (#303). Cross-revision lineage
+/// revision of the same capture series (legacy bolph71656-ai/HTDT-Capture#303). Cross-revision lineage
 /// never inlines the parent's pose or evidence — it is identity
 /// linkage only.
 public struct EntityLineageReference: Codable, Sendable, Equatable {
@@ -1244,7 +1244,7 @@ public struct EntityLineageReference: Codable, Sendable, Equatable {
 }
 
 /// How this entity record relates to the parent revision's record
-/// (#303).
+/// (legacy bolph71656-ai/HTDT-Capture#303).
 public enum EntityLineageRelation: String, Codable, Sendable {
     /// The same physical object re-observed — e.g. the same loudspeaker
     /// re-measured in a later revision.
@@ -1260,7 +1260,7 @@ public enum EntityLineageRelation: String, Codable, Sendable {
     case relationUnknown = "relation_unknown"
 }
 
-/// Cross-revision entity lineage (#303). Every record is revision-
+/// Cross-revision entity lineage (legacy bolph71656-ai/HTDT-Capture#303). Every record is revision-
 /// local; `lineage` links it back to the record it carries forward
 /// without copying pose or evidence from the parent revision.
 public struct AnnotationEntityLineage: Codable, Sendable, Equatable {
@@ -1329,7 +1329,7 @@ public struct AnnotationEntityLineage: Codable, Sendable, Equatable {
 }
 
 /// How an entity's `equipment_ref` relates to the annotation type
-/// (#237). The check is driven by the versioned catalog taxonomy, not
+/// (legacy bolph71656-ai/HTDT-Capture#237). The check is driven by the versioned catalog taxonomy, not
 /// by label text.
 public enum EquipmentReferenceCompatibility: String, Sendable,
     Equatable
@@ -1358,7 +1358,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let placement: PlacementProvenance
     public let orientation: OrientationAxes?
     public let channelRole: ChannelRole?
-    /// Logical role binding against a versioned layout profile (#315):
+    /// Logical role binding against a versioned layout profile (legacy bolph71656-ai/HTDT-Capture#315):
     /// `(profile_id, profile_version, role_id)`. Nil on entities
     /// written before profile authority existed — they decode as
     /// `unbound`, the migration-safe fallback for unknown roles.
@@ -1366,25 +1366,25 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let acousticCenter: AcousticCenterOffsetAuthority?
     public let equipmentRef: HTDTEquipmentReference?
     public let evidenceRefs: [String]
-    /// Physical envelope authority (#230); nil for point-only records.
+    /// Physical envelope authority (legacy bolph71656-ai/HTDT-Capture#230); nil for point-only records.
     public let physicalEnvelope: EntityPhysicalEnvelope?
-    /// Typed listening-position role (#243); only meaningful on
+    /// Typed listening-position role (legacy bolph71656-ai/HTDT-Capture#243); only meaningful on
     /// `listening_position`. Nil on a stored entity = legacy/unknown.
     public let listeningRole: ListeningPositionRole?
-    /// Optional quantitative uncertainty authority (#258).
+    /// Optional quantitative uncertainty authority (legacy bolph71656-ai/HTDT-Capture#258).
     public let uncertainty: SpatialUncertaintyAuthority?
-    /// Per-component verification detail (#263); nil on v1 records
+    /// Per-component verification detail (legacy bolph71656-ai/HTDT-Capture#263); nil on v1 records
     /// written before component authority existed.
     public let authority: AnnotationAuthorityComponents?
-    /// Creation/revision lifecycle metadata (#267).
+    /// Creation/revision lifecycle metadata (legacy bolph71656-ai/HTDT-Capture#267).
     public let lifecycle: AnnotationLifecycle?
-    /// How the reference point itself was authored/confirmed (#291).
+    /// How the reference point itself was authored/confirmed (legacy bolph71656-ai/HTDT-Capture#291).
     public let referencePoint: ReferencePointAuthority?
-    /// Optional cross-revision identity/lineage linkage (#303). Nil on
+    /// Optional cross-revision identity/lineage linkage (legacy bolph71656-ai/HTDT-Capture#303). Nil on
     /// legacy records means the lineage was never asserted — consumers
     /// read it as `relation_unknown`, never as `same_physical_entity`.
     public let lineage: AnnotationEntityLineage?
-    /// Optional app-local author/operator binding (issue #310):
+    /// Optional app-local author/operator binding (issue bolph71656-ai/HTDT-Capture#310):
     /// `operator_id` from `derived/operator-profiles.json`. Optional
     /// and explicit — anonymous records remain valid.
     public let authorOperatorID: OperatorProfileID?
@@ -1427,21 +1427,21 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             throw AnnotationModelError.duplicateEvidenceReference
         }
 
-        // A physical speaker may carry no aim authority (#228): nil
+        // A physical speaker may carry no aim authority (legacy bolph71656-ai/HTDT-Capture#228): nil
         // orientation is the first-class "aim unknown" state — Review
         // reports the missing aim and nothing is synthesized. A
-        // logical role is likewise optional (#315): `channel_role`
+        // logical role is likewise optional (legacy bolph71656-ai/HTDT-Capture#315): `channel_role`
         // and `role_binding` stay unassigned rather than claiming a
         // placeholder token.
 
         // `listening_role` is typed authority for listening positions
-        // only (#243); on any other type it is a contradiction.
+        // only (legacy bolph71656-ai/HTDT-Capture#243); on any other type it is a contradiction.
         guard listeningRole == nil || type == .listeningPosition else {
             throw AnnotationModelError.incompatibleListeningRole
         }
 
         // `role_binding` is logical layout vocabulary for physical
-        // loudspeakers only (#315); a bound role on any other type is
+        // loudspeakers only (legacy bolph71656-ai/HTDT-Capture#315); a bound role on any other type is
         // a category error.
         guard roleBinding == nil
                 || type == .speaker || type == .subwoofer
@@ -1450,7 +1450,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         }
 
         // A reference-point construction record must be coherent with
-        // the placement method that produced the position (#291): a
+        // the placement method that produced the position (legacy bolph71656-ai/HTDT-Capture#291): a
         // surface-derived placement may only carry surface-aware
         // constructions, and `direct_placement` never applies to a
         // surface hit.
@@ -1476,7 +1476,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
 
         // When a component-authority record exists it must describe
         // the fields actually present: a component is required exactly
-        // when the corresponding field carries authority (#263).
+        // when the corresponding field carries authority (legacy bolph71656-ai/HTDT-Capture#263).
         if let authority {
             guard (authority.orientation != nil) == (orientation != nil),
                   (authority.equipment != nil) == (equipmentRef != nil),
@@ -1527,7 +1527,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
 
     /// A copy of this entity with `author_operator_id` set to
     /// `operatorID` — the workspace stamps the selected operator
-    /// profile onto newly authored records (issue #310).
+    /// profile onto newly authored records (issue bolph71656-ai/HTDT-Capture#310).
     public func withAuthorOperator(
         _ operatorID: OperatorProfileID?
     ) throws -> CaptureAnnotationEntity {
@@ -1560,7 +1560,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
 
     /// Compatibility between this entity's `equipment_ref` and its
     /// annotation type under the reference's catalog authority
-    /// version (#237). Legacy records carrying an incompatible tuple
+    /// version (legacy bolph71656-ai/HTDT-Capture#237). Legacy records carrying an incompatible tuple
     /// remain readable; the mismatch is surfaced here and in
     /// `AnnotationContractReview` rather than silently ignored.
     public var equipmentCompatibility: EquipmentReferenceCompatibility {
@@ -1593,7 +1593,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
 
     /// A copy of this entity with `updated_at_utc` stamped into its
     /// lifecycle — a revision of the same conceptual entity keeps its
-    /// `entity_id` and creation time (#267).
+    /// `entity_id` and creation time (legacy bolph71656-ai/HTDT-Capture#267).
     public func revised(at updatedAtUTC: String) throws
         -> CaptureAnnotationEntity
     {
@@ -1750,7 +1750,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
 
 /// A semantic contract problem on a stored annotation, surfaced for
 /// reconciliation in Review and available to downstream ingestion
-/// (#237, #243, #244, #291). Findings never mutate or block the
+/// (legacy bolph71656-ai/HTDT-Capture#237, legacy bolph71656-ai/HTDT-Capture#243, legacy bolph71656-ai/HTDT-Capture#244, legacy bolph71656-ai/HTDT-Capture#291). Findings never mutate or block the
 /// record — legacy bundles stay readable — but a mismatch is never
 /// silently ignored.
 public struct AnnotationContractFinding:
@@ -1766,51 +1766,51 @@ public struct AnnotationContractFinding:
 
     public enum Code: String, Sendable {
         /// `equipment_ref` cannot be carried by this annotation type
-        /// under its catalog authority version (#237).
+        /// under its catalog authority version (legacy bolph71656-ai/HTDT-Capture#237).
         case incompatibleEquipmentReference =
             "incompatible_equipment_reference"
         /// The `equipment_ref` claims a catalog authority version the
-        /// taxonomy does not know (#237).
+        /// taxonomy does not know (legacy bolph71656-ai/HTDT-Capture#237).
         case unknownEquipmentAuthority =
             "unknown_equipment_authority"
         /// More than one `listening_position` claims `primary`
-        /// (#243).
+        /// (legacy bolph71656-ai/HTDT-Capture#243).
         case duplicatePrimaryListeningPosition =
             "duplicate_primary_listening_position"
         /// A `listening_position` carries no typed role — the record
         /// is readable but its acoustic intent is label-derived only
-        /// (#243).
+        /// (legacy bolph71656-ai/HTDT-Capture#243).
         case listeningRoleMissing = "listening_role_missing"
         /// Two entities of the same type claim the same channel role
-        /// (#244).
+        /// (legacy bolph71656-ai/HTDT-Capture#244).
         case duplicateChannelRole = "duplicate_channel_role"
         /// A surface-derived placement has no explicit reference-point
         /// construction record, so the semantic point cannot be proven
-        /// (#291). Expected on records written before the field
+        /// (legacy bolph71656-ai/HTDT-Capture#291). Expected on records written before the field
         /// existed — surfaces as a warning.
         case unverifiedReferencePointSemantics =
             "unverified_reference_point_semantics"
         /// An open-vocabulary token is neither standard nor
-        /// custom-scoped — a custom token authored before the #344
+        /// custom-scoped — a custom token authored before the legacy bolph71656-ai/HTDT-Capture#344
         /// namespace policy whose original meaning cannot be proven
         /// from the pinned vocabulary. Never an error: the record is
         /// readable; the token can never silently become standard.
         case legacyCustomUnscopedToken = "legacy_custom_unscoped"
         /// A loudspeaker carries neither `channel_role` nor
-        /// `role_binding` (#315) — a first-class unbound state, not a
+        /// `role_binding` (legacy bolph71656-ai/HTDT-Capture#315) — a first-class unbound state, not a
         /// silent default. Info-severity: missions that require the
         /// role surface it through task completeness.
         case speakerRoleUnbound = "speaker_role_unbound"
         /// The `role_binding` names a role ID the bound profile does
-        /// not define (#315) — resolvable only against that profile's
+        /// not define (legacy bolph71656-ai/HTDT-Capture#315) — resolvable only against that profile's
         /// exact vocabulary.
         case speakerRoleBindingUnknownRole =
             "speaker_role_binding_unknown_role"
-        /// `channel_role` and `role_binding` disagree (#315): both are
+        /// `channel_role` and `role_binding` disagree (legacy bolph71656-ai/HTDT-Capture#315): both are
         /// allowed to coexist while legacy records migrate, but a
         /// mismatch is a distinct conflict state for Review.
         case speakerRoleConflict = "speaker_role_conflict"
-        /// A speaker carries no orientation authority (#228) — a
+        /// A speaker carries no orientation authority (legacy bolph71656-ai/HTDT-Capture#228) — a
         /// first-class "aim unknown" state, not an invalid record.
         /// Info-severity: completeness surfaces it as a missing input.
         case speakerAimMissing = "speaker_aim_missing"
@@ -1907,7 +1907,7 @@ public enum AnnotationContractReview {
                 }
             }
 
-            // Logical role vocabulary (#315): unbound, unresolved and
+            // Logical role vocabulary (legacy bolph71656-ai/HTDT-Capture#315): unbound, unresolved and
             // conflicting bindings are first-class states so Review
             // never has to invent a placeholder role. Only built-in
             // profiles are resolved — custom vocabularies stay
@@ -1990,7 +1990,7 @@ public enum AnnotationContractReview {
                 rolesByTypeAndRole[key, default: []].append(entity)
             }
 
-            // #344 namespace policy: an unscoped token that is not in
+            // legacy bolph71656-ai/HTDT-Capture#344 namespace policy: an unscoped token that is not in
             // the pinned standard vocabulary is a legacy custom — it
             // remains readable but can never be interpreted as a
             // standard token.
@@ -2030,7 +2030,7 @@ public enum AnnotationContractReview {
 
             // A surface-derived placement without a construction
             // record means the semantic reference point was never
-            // explicitly confirmed (#291).
+            // explicitly confirmed (legacy bolph71656-ai/HTDT-Capture#291).
             if entity.referencePoint == nil,
                entity.placement.method == .raycast
                    || entity.placement.method == .meshHitTest
@@ -2083,18 +2083,18 @@ public enum AnnotationContractReview {
 
 public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     public static let expectedSchema = "htdt.capture.entities"
-    /// The payload version this build emits (#332). v1.1.0 adds the
-    /// shared typed relation graph (#333), entity lineage (#303), and
-    /// the open-token namespace policy (#344); v1.3.0 relaxes the
+    /// The payload version this build emits (legacy bolph71656-ai/HTDT-Capture#332). v1.1.0 adds the
+    /// shared typed relation graph (legacy bolph71656-ai/HTDT-Capture#333), entity lineage (legacy bolph71656-ai/HTDT-Capture#303), and
+    /// the open-token namespace policy (legacy bolph71656-ai/HTDT-Capture#344); v1.3.0 relaxes the
     /// speaker-orientation requirement to an explicit "aim unknown"
-    /// state (#228).
+    /// state (legacy bolph71656-ai/HTDT-Capture#228).
     public static let expectedSchemaVersion = "1.3.0"
-    /// Every payload version this build can decode (#332): 1.0.0
+    /// Every payload version this build can decode (legacy bolph71656-ai/HTDT-Capture#332): 1.0.0
     /// records are legacy — lineage is unknown and unscoped tokens
     /// classify `legacy_custom_unscoped`. 1.2.0 adds the
     /// `same_physical_equipment` relation token and the first-class
-    /// `inventory_item:` endpoint namespace (#403); 1.3.0 accepts
-    /// speakers without an orientation record (#228); 1.1.0 and 1.2.0
+    /// `inventory_item:` endpoint namespace (legacy bolph71656-ai/HTDT-Capture#403); 1.3.0 accepts
+    /// speakers without an orientation record (legacy bolph71656-ai/HTDT-Capture#228); 1.1.0 and 1.2.0
     /// payloads remain readable.
     public static let supportedSchemaVersions: [String] = [
         "1.0.0", "1.1.0", "1.2.0", "1.3.0",
@@ -2104,7 +2104,7 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     public let schemaVersion: String
     public let entities: [CaptureAnnotationEntity]
     /// Typed semantic relations between entities in this revision
-    /// (#333). Always emitted on v1.1.0+ (possibly empty); absent on
+    /// (legacy bolph71656-ai/HTDT-Capture#333). Always emitted on v1.1.0+ (possibly empty); absent on
     /// v1.0.0 payloads.
     public let relations: [CaptureSemanticRelation]
 
@@ -2152,7 +2152,7 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     /// Semantic contract findings across the committed collection —
     /// duplicate roles, incompatible equipment references, unproven
     /// reference-point semantics, unscoped legacy tokens
-    /// (#237, #243, #244, #291, #344).
+    /// (legacy bolph71656-ai/HTDT-Capture#237, legacy bolph71656-ai/HTDT-Capture#243, legacy bolph71656-ai/HTDT-Capture#244, legacy bolph71656-ai/HTDT-Capture#291, legacy bolph71656-ai/HTDT-Capture#344).
     public func contractFindings() -> [AnnotationContractFinding] {
         AnnotationContractReview.findings(in: entities)
     }
@@ -2160,15 +2160,15 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     /// Relations whose subject or object endpoint references
     /// `entityID` — surfaced before deleting or editing a staged
     /// entity so dependent relations are never silently orphaned
-    /// (#333).
+    /// (legacy bolph71656-ai/HTDT-Capture#333).
     public func relationsTouching(
         entityID: AnnotationEntityID
     ) -> [CaptureSemanticRelation] {
         relations.filter { $0.references(entityID: entityID) }
     }
 
-    /// Open-token namespace policy (#344): standard tokens (as pinned
-    /// to `declaredSchemaVersion`, #332) or custom-scoped tokens only.
+    /// Open-token namespace policy (legacy bolph71656-ai/HTDT-Capture#344): standard tokens (as pinned
+    /// to `declaredSchemaVersion`, legacy bolph71656-ai/HTDT-Capture#332) or custom-scoped tokens only.
     /// Unscoped non-standard tokens are legacy and never appear on
     /// wire-legal v1.1.0+ payloads.
     private static func validateTokenNamespaces(
@@ -2204,7 +2204,7 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         }
     }
 
-    /// Shared relation-graph invariants (#333): unique ids, no
+    /// Shared relation-graph invariants (legacy bolph71656-ai/HTDT-Capture#333): unique ids, no
     /// duplicate (type, subject, object) tuples, entity endpoints
     /// resolve inside the same revision, external endpoints are
     /// explicitly namespaced, and the endpoint-type policy holds.
@@ -2228,7 +2228,7 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
             }
             if endpoint.isInventoryItemRef {
                 // The reserved namespace requires a canonical
-                // AuthorityRecordID (#403) — a malformed inventory ref
+                // AuthorityRecordID (legacy bolph71656-ai/HTDT-Capture#403) — a malformed inventory ref
                 // is a dangling endpoint, not an external authority.
                 return endpoint.inventoryItemID != nil
                     ? .inventoryItem : nil
@@ -2240,7 +2240,7 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         }
         var seenIDs = Set<SemanticRelationID>()
         var seenTuples = Set<String>()
-        // #403: same_physical_equipment is a 1:1 identity equivalence —
+        // legacy bolph71656-ai/HTDT-Capture#403: same_physical_equipment is a 1:1 identity equivalence —
         // each entity and each inventory item may be bound at most
         // once per revision.
         var identityBoundEntityIDs = Set<AnnotationEntityID>()

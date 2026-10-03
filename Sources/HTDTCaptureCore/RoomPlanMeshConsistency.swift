@@ -1,7 +1,7 @@
 import Foundation
 
 /// Bounded world-space geometry profile accumulated while mesh geometry
-/// is committed (#277). Stores only aggregate extents and face-class
+/// is committed (legacy bolph71656-ai/HTDT-Capture#277). Stores only aggregate extents and face-class
 /// counts — never vertex buffers — so advisory evaluation stays cheap.
 public struct MeshGeometryProfile: Sendable, Equatable {
     public private(set) var anchorCount = 0
@@ -170,7 +170,7 @@ public struct RoomPlanMeshConsistencyReport: Sendable, Equatable, Codable {
     }
 }
 
-/// Advisory RoomPlan-vs-mesh extent/scale comparison (#277). Both
+/// Advisory RoomPlan-vs-mesh extent/scale comparison (legacy bolph71656-ai/HTDT-Capture#277). Both
 /// inputs come from the same capture session and coordinate space, so
 /// the comparison only runs on same-authority evidence. Nothing is
 /// fused or rewritten; "unknown" surfaces as an absent section, never

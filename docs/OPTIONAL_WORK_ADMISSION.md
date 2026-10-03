@@ -1,6 +1,6 @@
-# Optional-Work Admission/Degradation Policy (#273)
+# Optional-Work Admission/Degradation Policy (legacy bolph71656-ai/HTDT-Capture#273)
 
-Issue #273 (parent #266). Goal: keep optional Vision / Core AI /
+Issue bolph71656-ai/HTDT-Capture#273 (parent legacy bolph71656-ai/HTDT-Capture#266). Goal: keep optional Vision / Core AI /
 Foundation Models / reference-object / high-quality-visual work from
 degrading authoritative RoomPlan/ARKit/depth/persistence on
 iPhone 17 Pro — through a **small admission/degradation policy layered
@@ -32,7 +32,7 @@ smallest stateful surface around it:
 
 - the single **active-assist slot** (at most one operator-requested
   assist at a time);
-- each feature's **one-in-flight request bound** (the #275 convention
+- each feature's **one-in-flight request bound** (the legacy bolph71656-ai/HTDT-Capture#275 convention
   — no second queue around a feature that already bounds itself);
 - a **ticket** (`OptionalWorkAdmissionTicket`) that binds the
   admission's request generation so a superseded or ended request's
@@ -77,7 +77,7 @@ potentially continuous workload in the sibling-issue audit).
 |---|---|
 | `critical` | thermal `.critical`, storage `.critical` — the existing `isLifecycleFailure` conditions |
 | `serious` | thermal `.serious`, memory warning active, unresolved ARSession interruption, `.unavailable` tracking — matching the pre-existing rendering/preview mitigation gate |
-| `elevated` | thermal `.fair`, storage `.warning`, undetermined storage (not proof of headroom, #181), persistence backlog, engaged rendering mitigation, `.limited` tracking, expected-but-absent scene depth |
+| `elevated` | thermal `.fair`, storage `.warning`, undetermined storage (not proof of headroom, legacy bolph71656-ai/HTDT-Capture#181), persistence backlog, engaged rendering mitigation, `.limited` tracking, expected-but-absent scene depth |
 | `nominal` | nothing above |
 
 Effects: `elevated` defers speculative starts and suspends sustained
@@ -129,7 +129,7 @@ advisory-note details — never localized strings.
 
 ## 8. Instrumentation
 
-Only the measurements needed to choose safe defaults (#273):
+Only the measurements needed to choose safe defaults (legacy bolph71656-ai/HTDT-Capture#273):
 
 - **Admission decisions**: phase + allow/defer/reject + denial reason,
   bounded to 256 records with identical consecutive verdicts per
@@ -148,13 +148,13 @@ Only the measurements needed to choose safe defaults (#273):
   for explicit-request denials only — never routine ticks;
 - existing signals stay in their authorities: thermal/memory/storage
   timeline in `capture_resource_event`, tracking transitions in the
-  bounded #148 history, persistence backlog in the store ledger.
+  bounded legacy bolph71656-ai/HTDT-Capture#148 history, persistence backlog in the store ledger.
 
 Nothing here logs room imagery or geometry as performance telemetry.
 
 ## 9. iPhone 17 Pro measured-safe profile (defaults — UNMEASURED)
 
-The #267 profile's required output. **No physical iPhone 17 Pro /
+The legacy bolph71656-ai/HTDT-Capture#267 profile's required output. **No physical iPhone 17 Pro /
 iOS 27 benchmark exists yet** — every default below is provisional
 policy intent pending the §10 runs and must be recorded as
 `measured: false` until then.
@@ -162,7 +162,7 @@ policy intent pending the §10 runs and must be recorded as
 | Profile key | Provisional default | Status |
 |---|---|---|
 | normal video/HDR profile | current default AR config (unchanged by this policy) | unmeasured |
-| one-shot high-res policy | one request in flight, owner-bounded (#275) | policy in place, latency unmeasured |
+| one-shot high-res policy | one request in flight, owner-bounded (legacy bolph71656-ai/HTDT-Capture#275) | policy in place, latency unmeasured |
 | reference detection vs tracking | stationary detection preferred during live scan; full-rate tracking prohibited in `roomScan`/`targetOrMeasurement` | policy in place, unmeasured |
 | Vision/Core AI allowed phases | `reviewAnnotation` (one-shots also at nominal `roomScan` for bounded semantic work) | policy in place, unmeasured |
 | Foundation Models allowed phases | `reviewAnnotation` only | policy in place, unmeasured |

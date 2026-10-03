@@ -1,12 +1,12 @@
 import Foundation
 
-/// Identity of a typed semantic relation record (issue #333).
+/// Identity of a typed semantic relation record (issue bolph71656-ai/HTDT-Capture#333).
 public struct SemanticRelationID: CaptureIdentifier {
     public let rawValue: UUID
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// Open `relation_type` vocabulary (#333, namespaced per #344).
+/// Open `relation_type` vocabulary (legacy bolph71656-ai/HTDT-Capture#333, namespaced per legacy bolph71656-ai/HTDT-Capture#344).
 /// Standard types encode the families the contract itself defines;
 /// deployments may add custom types under the reserved `x_` prefix
 /// which can never collide with future standard vocabulary.
@@ -82,16 +82,16 @@ public struct SemanticRelationType:
         Self(rawValue: "routes_to_physical_source")!
     /// Identity equivalence: one annotation entity and one
     /// `inventory_item:` endpoint describe the same physical installed
-    /// unit (#403). Distinct from same-model equality, `mounted_on`,
+    /// unit (legacy bolph71656-ai/HTDT-Capture#403). Distinct from same-model equality, `mounted_on`,
     /// `member_of_rack` and `corresponds_to_planned_target`.
     public static let samePhysicalEquipment =
         Self(rawValue: "same_physical_equipment")!
 
     /// The standard tokens defined by this contract version. The set
     /// is pinned per contract — a later contract may add tokens but
-    /// never redefines or removes an existing one (#344).
+    /// never redefines or removes an existing one (legacy bolph71656-ai/HTDT-Capture#344).
     /// `same_physical_equipment` entered the vocabulary at entities
-    /// schema_version 1.2.0 (#403).
+    /// schema_version 1.2.0 (legacy bolph71656-ai/HTDT-Capture#403).
     public static let standardSet: Set<String> = [
         "mounted_on", "member_of_rack", "listener_point_for_seat",
         "eye_point_for_seat", "supported_by", "behind_screen",
@@ -101,7 +101,7 @@ public struct SemanticRelationType:
     ]
 
     /// The standard-token set pinned to a payload's declared
-    /// `schema_version` (#332): tokens introduced by a later contract
+    /// `schema_version` (legacy bolph71656-ai/HTDT-Capture#332): tokens introduced by a later contract
     /// version are not standard vocabulary for older payloads.
     /// Unknown or newer versions resolve to this build's full set.
     public static func standardSet(asOf schemaVersion: String?)
@@ -118,7 +118,7 @@ public struct SemanticRelationType:
     }
 }
 
-/// Reference to a relation endpoint (#333). Endpoints are either
+/// Reference to a relation endpoint (legacy bolph71656-ai/HTDT-Capture#333). Endpoints are either
 /// entities committed in the same capture revision (a bare canonical
 /// `AnnotationEntityID` UUID) or an explicitly namespaced external /
 /// reference authority written `namespace:reference` (e.g.
@@ -133,7 +133,7 @@ public struct SemanticRelationEndpoint:
 
     /// Namespace reserved for first-class references to a
     /// `SystemInventoryItem` committed in the same contribution's
-    /// `TheaterAuthorityCollection` (#403). It is not an opaque
+    /// `TheaterAuthorityCollection` (legacy bolph71656-ai/HTDT-Capture#403). It is not an opaque
     /// external authority: referential integrity is validated locally.
     public static let inventoryItemNamespace = "inventory_item"
 
@@ -155,7 +155,7 @@ public struct SemanticRelationEndpoint:
     }
 
     /// The inventory item this endpoint references when it uses the
-    /// first-class `inventory_item:` namespace (#403).
+    /// first-class `inventory_item:` namespace (legacy bolph71656-ai/HTDT-Capture#403).
     public var inventoryItemID: AuthorityRecordID? {
         guard let ref = externalRef,
               ref.namespace == Self.inventoryItemNamespace
@@ -164,7 +164,7 @@ public struct SemanticRelationEndpoint:
     }
 
     /// Whether any endpoint namespace is the reserved `inventory_item`
-    /// authority (#403).
+    /// authority (legacy bolph71656-ai/HTDT-Capture#403).
     public var isInventoryItemRef: Bool {
         externalRef?.namespace == Self.inventoryItemNamespace
     }
@@ -177,7 +177,7 @@ public struct SemanticRelationEndpoint:
         self.rawValue = entityID.description
     }
 
-    /// First-class inventory-item endpoint (#403):
+    /// First-class inventory-item endpoint (legacy bolph71656-ai/HTDT-Capture#403):
     /// `inventory_item:<AuthorityRecordID>`.
     public init(inventoryItemID: AuthorityRecordID) {
         self.rawValue =
@@ -189,7 +189,7 @@ public struct SemanticRelationEndpoint:
     /// `inventory_item` namespace additionally requires its reference
     /// to be a canonical `AuthorityRecordID` — a malformed inventory
     /// ref is an invalid endpoint, never an opaque external token
-    /// (#403).
+    /// (legacy bolph71656-ai/HTDT-Capture#403).
     public init?(validating rawValue: String) {
         if AnnotationEntityID(canonicalString: rawValue) != nil {
             self.rawValue = rawValue
@@ -232,7 +232,7 @@ public struct SemanticRelationEndpoint:
 }
 
 /// How a relation endpoint resolves for endpoint-type policy checks
-/// (#333/#403): a same-revision entity of a known type, a first-class
+/// (legacy bolph71656-ai/HTDT-Capture#333/legacy bolph71656-ai/HTDT-Capture#403): a same-revision entity of a known type, a first-class
 /// `inventory_item:` reference, or an external authority reference.
 public enum SemanticRelationEndpointKind: Equatable, Sendable {
     /// Same-revision `AnnotationEntityID` endpoint, resolved to its
@@ -256,7 +256,7 @@ public enum SemanticRelationError: Error, Equatable {
 }
 
 /// A typed entity-to-entity (or entity-to-external-authority) relation
-/// (#333). Replaces the previous ad-hoc coupling fields with a shared,
+/// (legacy bolph71656-ai/HTDT-Capture#333). Replaces the previous ad-hoc coupling fields with a shared,
 /// versioned record: the same reference/provenance model serves the
 /// whole relation family — physical mounting, rack membership,
 /// listener/seat pairing, planned↔observed correspondence, and logical
@@ -363,26 +363,26 @@ public enum SemanticRelationGraphError: Error, Equatable {
     case danglingEntityReference
     /// The relation type does not allow this endpoint combination.
     case disallowedEndpointCombination
-    /// A non-standard relation type is not custom-scoped (#344).
+    /// A non-standard relation type is not custom-scoped (legacy bolph71656-ai/HTDT-Capture#344).
     case unscopedCustomRelationType
     /// `same_physical_equipment` is a pairwise identity equivalence —
-    /// it takes exactly one object endpoint (#403).
+    /// it takes exactly one object endpoint (legacy bolph71656-ai/HTDT-Capture#403).
     case invalidIdentityBindingShape
     /// An entity or inventory item is asserted as the same physical
     /// unit more than once in one revision — the 1:1 default
-    /// cardinality for `same_physical_equipment` (#403).
+    /// cardinality for `same_physical_equipment` (legacy bolph71656-ai/HTDT-Capture#403).
     case duplicatePhysicalEquipmentBinding
 }
 
 /// Entity-type combination policy for the standard relation types
-/// (#333): each known type bounds subject/object roles; custom `x_`
+/// (legacy bolph71656-ai/HTDT-Capture#333): each known type bounds subject/object roles; custom `x_`
 /// types are open. Endpoint entities are looked up in the same
 /// revision; `inventory_item:` endpoints are first-class references to
-/// the same contribution's inventory (#403); external endpoints are
+/// the same contribution's inventory (legacy bolph71656-ai/HTDT-Capture#403); external endpoints are
 /// accepted only where the type permits.
 public enum SemanticRelationPolicy {
     /// Entity types that can stand for a physical installed unit in a
-    /// `same_physical_equipment` binding (#403): real equipment and
+    /// `same_physical_equipment` binding (legacy bolph71656-ai/HTDT-Capture#403): real equipment and
     /// misc spatial objects — not listening points, seats or
     /// measurement/reference points.
     public static let physicalEquipmentEntityTypes:
@@ -424,7 +424,7 @@ public enum SemanticRelationPolicy {
             // Only rack-housed devices and inventory physical units;
             // the object must be the rack entity itself. An
             // `inventory_item:` subject is the canonical rack
-            // membership for non-spatial equipment (#333/#403).
+            // membership for non-spatial equipment (legacy bolph71656-ai/HTDT-Capture#333/legacy bolph71656-ai/HTDT-Capture#403).
             guard isEntity(object, of: .equipmentRack) else {
                 return false
             }
@@ -441,7 +441,7 @@ public enum SemanticRelationPolicy {
             }
         case "same_physical_equipment":
             // Identity equivalence between exactly one spatial entity
-            // and one inventory item — either direction (#403).
+            // and one inventory item — either direction (legacy bolph71656-ai/HTDT-Capture#403).
             switch (subject, object) {
             case (.entity(let type), .inventoryItem),
                  (.inventoryItem, .entity(let type)):
@@ -491,7 +491,7 @@ public enum SemanticRelationPolicy {
                 .speaker, .subwoofer,
             ])
         default:
-            // Custom-scoped relation types are open (#344).
+            // Custom-scoped relation types are open (legacy bolph71656-ai/HTDT-Capture#344).
             return true
         }
     }
@@ -500,21 +500,21 @@ public enum SemanticRelationPolicy {
 extension CaptureSemanticRelation {
     /// Whether this relation references `entityID` at any endpoint —
     /// used to surface dependent relations before an entity delete or
-    /// edit commits (#333).
+    /// edit commits (legacy bolph71656-ai/HTDT-Capture#333).
     public func references(entityID: AnnotationEntityID) -> Bool {
         subjectRef.entityID == entityID
             || objectRefs.contains { $0.entityID == entityID }
     }
 
     /// Whether this relation references `itemID` through an
-    /// `inventory_item:` endpoint (#403).
+    /// `inventory_item:` endpoint (legacy bolph71656-ai/HTDT-Capture#403).
     public func references(itemID: AuthorityRecordID) -> Bool {
         subjectRef.inventoryItemID == itemID
             || objectRefs.contains { $0.inventoryItemID == itemID }
     }
 
     /// Whether any endpoint uses the `inventory_item:` namespace
-    /// (#403) — such relations cannot be committed without the
+    /// (legacy bolph71656-ai/HTDT-Capture#403) — such relations cannot be committed without the
     /// authority collection that resolves them.
     public var referencesInventoryItem: Bool {
         subjectRef.isInventoryItemRef

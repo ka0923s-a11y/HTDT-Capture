@@ -1,6 +1,6 @@
 import Foundation
 
-/// Short human-citable correlation id (issue #389), e.g.
+/// Short human-citable correlation id (issue bolph71656-ai/HTDT-Capture#389), e.g.
 /// `[diag 74C2]` — two random bytes rendered uppercase hex. The id is
 /// stamped on every artifact of one export so a support conversation
 /// can name exactly which package a user sent, without any account,
@@ -53,7 +53,7 @@ public enum SupportDiagnosticsError: Error, Sendable, Equatable {
 }
 
 /// One privacy-review category of the diagnostics package (issue
-/// #389). The package enumerates what it contains by category before
+/// legacy bolph71656-ai/HTDT-Capture#389). The package enumerates what it contains by category before
 /// export, and the category order is the fixed display order.
 public enum SupportDiagnosticsPrivacyCategory:
     String, Codable, Sendable, Equatable, CaseIterable
@@ -133,7 +133,7 @@ public struct SupportDiagnosticsEnvironment: Sendable, Equatable {
 }
 
 /// Capability flags a support engineer needs to reason about what a
-/// capture run could have produced (issue #389).
+/// capture run could have produced (issue bolph71656-ai/HTDT-Capture#389).
 public struct DiagnosticsCapabilitySummary:
     Codable, Sendable, Equatable
 {
@@ -201,7 +201,7 @@ public struct DiagnosticsResourceSummary:
     }
 }
 
-/// Capture-system health section (issue #389): the operational signals
+/// Capture-system health section (issue bolph71656-ai/HTDT-Capture#389): the operational signals
 /// a support ticket needs to reconstruct what the capture subsystem
 /// did, without capture evidence.
 public struct DiagnosticsCaptureHealth:
@@ -250,7 +250,7 @@ public struct DiagnosticsCaptureHealth:
     }
 }
 
-/// Endpoint reachability row (issue #389): verdict class only — the
+/// Endpoint reachability row (issue bolph71656-ai/HTDT-Capture#389): verdict class only — the
 /// package never carries URLs, hosts, or credentials.
 public struct DiagnosticsEndpointReachability:
     Codable, Sendable, Equatable
@@ -272,7 +272,7 @@ public struct DiagnosticsEndpointReachability:
     }
 }
 
-/// The versioned diagnostics document (issue #389). The wire contract
+/// The versioned diagnostics document (issue bolph71656-ai/HTDT-Capture#389). The wire contract
 /// is deliberately typed so capture evidence cannot enter it: no
 /// image/depth/mesh fields, no annotation or project text, no serial
 /// numbers, no operator-authored strings.
@@ -337,7 +337,7 @@ public struct SupportDiagnosticsReport: Codable, Sendable, Equatable {
     }
 }
 
-/// One privacy-preview row (issue #389): what the package contains,
+/// One privacy-preview row (issue bolph71656-ai/HTDT-Capture#389): what the package contains,
 /// whether it is exported, and why not when excluded.
 public struct DiagnosticsPrivacyPreviewRow:
     Sendable, Equatable
@@ -361,7 +361,7 @@ public struct DiagnosticsPrivacyPreviewRow:
     }
 }
 
-/// The collected diagnostics export (issue #389): the typed report,
+/// The collected diagnostics export (issue bolph71656-ai/HTDT-Capture#389): the typed report,
 /// its privacy preview, and both artifacts — a bounded JSON document
 /// and a short human-readable text summary. Bytes are produced once
 /// here; the caller hands them to a share sheet or writes them to
@@ -386,7 +386,7 @@ public struct SupportDiagnosticsPackage: Sendable, Equatable {
     }
 }
 
-/// Builds the diagnostics package (issue #389). All inputs arrive
+/// Builds the diagnostics package (issue bolph71656-ai/HTDT-Capture#389). All inputs arrive
 /// already privacy-shaped — the collector carries no filesystem or
 /// network access of its own; the app layer supplies the environment
 /// strings and the latest resource/inventory signals.

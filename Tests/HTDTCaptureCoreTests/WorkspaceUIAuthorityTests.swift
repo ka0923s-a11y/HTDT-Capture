@@ -3,9 +3,9 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Tests for the workspace-UI support types added for issues
-/// #214/#246 (targeted placement), #247 (plausibility), #266
-/// (workspace drafts), #239 (equipment identity), #278 (speaker
-/// layout), #245 (edit seeds) and #265 (catalog selection keys).
+/// legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246 (targeted placement), legacy bolph71656-ai/HTDT-Capture#247 (plausibility), legacy bolph71656-ai/HTDT-Capture#266
+/// (workspace drafts), legacy bolph71656-ai/HTDT-Capture#239 (equipment identity), legacy bolph71656-ai/HTDT-Capture#278 (speaker
+/// layout), legacy bolph71656-ai/HTDT-Capture#245 (edit seeds) and legacy bolph71656-ai/HTDT-Capture#265 (catalog selection keys).
 final class WorkspaceUIAuthorityTests: XCTestCase {
 
     private let spaceID = CoordinateSpaceID()
@@ -67,7 +67,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
         )
     }
 
-    // MARK: #246 — mesh raycast
+    // MARK: legacy bolph71656-ai/HTDT-Capture#246 — mesh raycast
 
     func testMeshRaycastHitsTriangle() throws {
         // A triangle in the z = -2 plane spanning x,y ∈ [-1, 1].
@@ -155,7 +155,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
             try XCTUnwrap(hit?.positionWorld).z, 2, accuracy: 0.001)
     }
 
-    // MARK: #246 — RoomPlan object binding
+    // MARK: legacy bolph71656-ai/HTDT-Capture#246 — RoomPlan object binding
 
     func testRoomPlanObjectRaycastHitsBox() throws {
         let object = RoomPlanBindableObject(
@@ -194,7 +194,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
                 ray: ray, objects: [object]))
     }
 
-    // MARK: #214/#246 — placement probe resolution
+    // MARK: legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246 — placement probe resolution
 
     private func meshHit(distance: Float) -> MeshRaycastHit {
         MeshRaycastHit(
@@ -296,7 +296,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
         XCTAssertEqual(probe.roomPlanObjectCategory, "wall")
     }
 
-    // MARK: #247 — spatial plausibility diagnostics
+    // MARK: legacy bolph71656-ai/HTDT-Capture#247 — spatial plausibility diagnostics
 
     private func plausibilityContext() -> SpatialPlausibilityContext {
         // A 4 x 3 x 4 m room corner-box spanning x,z ∈ [-2, 2],
@@ -381,7 +381,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
         })
     }
 
-    // MARK: #266 — workspace draft persistence
+    // MARK: legacy bolph71656-ai/HTDT-Capture#266 — workspace draft persistence
 
     private func makeDraft(
         revisionID: CaptureRevisionID,
@@ -410,7 +410,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
     }
 
     func testDraftRoundTripPreservesTheaterAuthorities() throws {
-        // #358: staged theater-semantic authorities must survive
+        // legacy bolph71656-ai/HTDT-Capture#358: staged theater-semantic authorities must survive
         // autosave/restore like the other staged collections.
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -428,7 +428,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
     }
 
     func testLegacyDraftWithoutTheaterAuthoritiesDecodes() throws {
-        // Drafts written before #358 carry no `theater_authorities`
+        // Drafts written before legacy bolph71656-ai/HTDT-Capture#358 carry no `theater_authorities`
         // key; they must still decode so older autosaves restore.
         var draft = try makeDraft(
             revisionID: CaptureRevisionID(), coordinateSpaceID: spaceID)
@@ -515,7 +515,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
             store.load(revisionID: b, coordinateSpaceID: spaceID))
     }
 
-    // MARK: #239 — equipment identity evidence
+    // MARK: legacy bolph71656-ai/HTDT-Capture#239 — equipment identity evidence
 
     private func makeEquipment() throws -> HTDTEquipmentReference {
         try HTDTEquipmentReference(
@@ -663,7 +663,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
         XCTAssertNil(blank.serialOrAssetTag)
     }
 
-    // MARK: #278 — speaker layout plan/progress
+    // MARK: legacy bolph71656-ai/HTDT-Capture#278 — speaker layout plan/progress
 
     func testLayoutPresetsCarryOrderedRoles() {
         let plan = SpeakerLayoutPresets.surround5_1
@@ -721,7 +721,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
             progress.nextPendingRole(in: plan)?.channelRole, .right)
     }
 
-    // MARK: #245 — edit seeds preserve identity
+    // MARK: legacy bolph71656-ai/HTDT-Capture#245 — edit seeds preserve identity
 
     func testEditSeedPreservesEntityIDAndProvenance() throws {
         let original = try makeEntity(
@@ -842,7 +842,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
         XCTAssertEqual(edited.statedUncertainty, 0.01)
     }
 
-    // MARK: #265 — catalog selection key determinism
+    // MARK: legacy bolph71656-ai/HTDT-Capture#265 — catalog selection key determinism
 
     func testCatalogSelectionKeyIsDeterministic() throws {
         let hash = try EvidenceSHA256(

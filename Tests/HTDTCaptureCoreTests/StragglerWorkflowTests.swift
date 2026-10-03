@@ -3,12 +3,12 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Unit coverage for the workflow/storage stragglers: capture
-/// strategy profiles (#307), active-capture storage advisory (#308),
-/// acquisition origin records (#317), semantic child revisions
-/// (#319), and plan reference underlays (#322).
+/// strategy profiles (legacy bolph71656-ai/HTDT-Capture#307), active-capture storage advisory (legacy bolph71656-ai/HTDT-Capture#308),
+/// acquisition origin records (legacy bolph71656-ai/HTDT-Capture#317), semantic child revisions
+/// (legacy bolph71656-ai/HTDT-Capture#319), and plan reference underlays (legacy bolph71656-ai/HTDT-Capture#322).
 final class StragglerWorkflowTests: XCTestCase {
 
-    // MARK: #307 capture strategy profiles
+    // MARK: legacy bolph71656-ai/HTDT-Capture#307 capture strategy profiles
 
     func testStrategyCatalogPublishesAllProfiles() {
         XCTAssertEqual(
@@ -181,7 +181,7 @@ final class StragglerWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: #308 storage advisory
+    // MARK: legacy bolph71656-ai/HTDT-Capture#308 storage advisory
 
     func testStorageProfileAccumulatesEvidenceBytes() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -329,7 +329,7 @@ final class StragglerWorkflowTests: XCTestCase {
         XCTAssertNil(unmeasured.marginToCriticalBytes)
     }
 
-    // MARK: #317 acquisition origins
+    // MARK: legacy bolph71656-ai/HTDT-Capture#317 acquisition origins
 
     func testOriginRecordValidation() throws {
         let revision = CaptureRevisionID(rawValue: UUID())
@@ -429,7 +429,7 @@ final class StragglerWorkflowTests: XCTestCase {
         XCTAssertEqual(try reopened.origin(for: revisionB), recordB)
     }
 
-    // MARK: #319 semantic child revisions
+    // MARK: legacy bolph71656-ai/HTDT-Capture#319 semantic child revisions
 
     func testSemanticChildPreservesEvidenceAndWritesIntent()
         async throws
@@ -598,7 +598,7 @@ final class StragglerWorkflowTests: XCTestCase {
         XCTAssertFalse(intent.reusedEvidenceRefs.isEmpty)
 
         // The finalized child validates and surfaces the semantic
-        // diff through the comparison workspace (#221).
+        // diff through the comparison workspace (legacy bolph71656-ai/HTDT-Capture#221).
         let report = try BundleDirectoryValidator.validate(
             root: destination
         )
@@ -645,7 +645,7 @@ final class StragglerWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: #322 plan reference underlay
+    // MARK: legacy bolph71656-ai/HTDT-Capture#322 plan reference underlay
 
     func testPlanUnderlayValidationAndPersistence() async throws {
         let root = FileManager.default.temporaryDirectory

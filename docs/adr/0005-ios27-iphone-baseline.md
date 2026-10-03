@@ -6,7 +6,7 @@ Supersedes: the deployment-target and device-family decisions of ADR-0001 (its c
 
 ## Context
 
-The product deployment target is now explicitly **iPhone 17 Pro running iOS 27** (program issue #266/#267). ADR-0001 chose iOS 17 + iPhone/iPad under the prior assumption of a broader LiDAR device test matrix; that assumption no longer holds.
+The product deployment target is now explicitly **iPhone 17 Pro running iOS 27** (program issue bolph71656-ai/HTDT-Capture#266/legacy bolph71656-ai/HTDT-Capture#267). ADR-0001 chose iOS 17 + iPhone/iPad under the prior assumption of a broader LiDAR device test matrix; that assumption no longer holds.
 
 Raising the deployment target does not itself improve capture accuracy. The value is removing irrelevant compatibility burden (iPad UX surface, iOS <27 availability branches, a Mac "Designed for iPhone/iPad" destination outside the product contract) and letting the app use and qualify the chosen iOS 27 capability set without pretending older systems remain product targets.
 

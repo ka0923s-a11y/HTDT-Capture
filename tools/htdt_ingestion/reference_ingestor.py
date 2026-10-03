@@ -893,7 +893,7 @@ def _validate_identity_membership(
     reader: ValidatedBundleReader,
     manifest: dict,
 ) -> dict[str, dict]:
-    """Cross-payload identity pass before any source promotion (#153).
+    """Cross-payload identity pass before any source promotion (legacy bolph71656-ai/HTDT-Capture#153).
 
     Validates the canonical session authority and every frame descriptor
     against the manifest's ``capture_session_ids``/``coordinate_space_ids``
@@ -948,7 +948,7 @@ def _build_source_registry(
 ) -> tuple[list[dict], dict[str, dict]]:
     records: list[dict] = []
     by_path: dict[str, dict] = {}
-    # Source-lookup indexes are built once (#195): ref resolution is
+    # Source-lookup indexes are built once (legacy bolph71656-ai/HTDT-Capture#195): ref resolution is
     # O(files + refs), never per-ref manifest scans.
     paths = {entry["path"] for entry in manifest["files"]}
     session_ids = set(manifest.get("capture_session_ids", []))
@@ -987,7 +987,7 @@ def _build_source_registry(
                 )
             if source_ref.startswith("sha256:"):
                 target_hash = source_ref.removeprefix("sha256:")
-                # #193: a SHA-256 ref must name exactly one payload
+                # legacy bolph71656-ai/HTDT-Capture#193: a SHA-256 ref must name exactly one payload
                 # authority. Identical bytes under different paths are
                 # distinct authorities; bind them with a path: ref.
                 matches = entries_by_sha256.get(target_hash, [])
@@ -1061,7 +1061,7 @@ def _build_source_registry(
     return records, by_path
 
 
-# Reserved-path metadata contract for canonical RoomPlan payloads (#187):
+# Reserved-path metadata contract for canonical RoomPlan payloads (legacy bolph71656-ai/HTDT-Capture#187):
 # each canonical path binds exactly one RoomPlan semantic role.
 ROOMPLAN_PATH_CONTRACT = {
     ROOMPLAN_RAW_PATH: {
@@ -1176,7 +1176,7 @@ def _load_roomplan_capture_metadata(
     source_by_path: dict[str, dict],
     roomplan_records: list[dict],
 ) -> dict | None:
-    """Validate and carry ``roomplan/captured-room-metadata.json`` (#152).
+    """Validate and carry ``roomplan/captured-room-metadata.json`` (legacy bolph71656-ai/HTDT-Capture#152).
 
     The canonical metadata payload binds the raw and processed RoomPlan
     artifacts to the manifest identity registry. It is optional evidence:
@@ -2527,11 +2527,11 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
         bundle_digest = reader.report["bundle_digest"]
 
         # The finalized-capture quality gate runs before any source
-        # evidence or downstream handoff is produced (#146).
+        # evidence or downstream handoff is produced (legacy bolph71656-ai/HTDT-Capture#146).
         _enforce_quality_gate(reader, manifest)
 
         # Cross-payload identity pass: session and frame identities must be
-        # members of the manifest registry before promotion (#153).
+        # members of the manifest registry before promotion (legacy bolph71656-ai/HTDT-Capture#153).
         frame_registry = _validate_identity_membership(reader, manifest)
 
         source_records, source_by_path = _build_source_registry(

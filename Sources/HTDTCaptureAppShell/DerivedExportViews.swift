@@ -10,7 +10,7 @@ import UIKit
 #endif
 
 /// What the host reports about a finalized capture for the derived
-/// export sheets (issue #306): which geometry sources are available
+/// export sheets (issue bolph71656-ai/HTDT-Capture#306): which geometry sources are available
 /// and which evidence previews may be offered for explicit selection.
 public struct DerivedExportInfo: Sendable, Equatable {
     /// `roomplan/captured-room.json` is declared, present, and
@@ -158,7 +158,7 @@ public struct DerivedExportTarget: Identifiable, Sendable, Equatable {
 
 // MARK: - Derived 3D sheet
 
-/// Derived 3D model export (issue #306). The sheet states up front
+/// Derived 3D model export (issue bolph71656-ai/HTDT-Capture#306). The sheet states up front
 /// that the output is derived convenience geometry — not canonical
 /// evidence — and that no camera imagery or depth is included, so the
 /// privacy difference from the full `.htdtcapture` bundle is explicit.
@@ -426,7 +426,7 @@ public struct Derived3DExportSheet: View {
 
 // MARK: - Survey report sheet
 
-/// Field-survey report export (issue #318): language choice plus the
+/// Field-survey report export (issue bolph71656-ai/HTDT-Capture#318): language choice plus the
 /// explicit per-frame preview opt-in — nothing camera-derived is
 /// embedded unless the operator selects it here.
 public struct SurveyReportExportSheet: View {

@@ -1,7 +1,7 @@
 # Phase 4 Annotation + Measurement Implementation Record
 
-Status: Software implementation complete; physical acceptance remains under Issue #9  
-Issue: #5 (closed)
+Status: Software implementation complete; physical acceptance remains under Issue bolph71656-ai/HTDT-Capture#9  
+Issue: legacy bolph71656-ai/HTDT-Capture#5 (closed)
 
 ## Implemented in this slice
 
@@ -35,20 +35,20 @@ Every entity carries:
 Optional contract extensions (annotation_contract cluster):
 
 - `physical_envelope`: user-measured / catalog-derived / imported
-  width-height-depth authority, never inferred by the app (#230);
+  width-height-depth authority, never inferred by the app (legacy bolph71656-ai/HTDT-Capture#230);
 - `listening_role`: typed primary/secondary/measurement-reference
   role for listening positions, independent of the human label
-  (#243);
+  (legacy bolph71656-ai/HTDT-Capture#243);
 - `uncertainty`: optional isotropic/per-axis/angular uncertainty with
-  a stated basis — user, instrument, or app estimate (#258);
+  a stated basis — user, instrument, or app estimate (legacy bolph71656-ai/HTDT-Capture#258);
 - `authority`: per-component verification detail (placement,
   orientation, equipment, reference point, semantic role) so a mixed
   record never overstates which fields are evidence-backed; the
-  aggregate `verification_state` remains the derived summary (#263);
+  aggregate `verification_state` remains the derived summary (legacy bolph71656-ai/HTDT-Capture#263);
 - `reference_point`: explicit construction record for
   evidence-captured placements — a raycast hit cannot silently claim
   a semantic point such as `ear_center` without `surface_hit_confirmed`
-  or `offset_from_surface` (#291).
+  or `offset_from_surface` (legacy bolph71656-ai/HTDT-Capture#291).
 
 ### Speaker-specific authority
 
@@ -61,7 +61,7 @@ Axes must be unit length and orthogonal.
 
 Supported built-in role tokens include L/C/R, SL/SR, SBL/SBR, LFE, and common top channels. The role type also accepts additional uppercase stable tokens rather than geometry free text.
 
-Subwoofers carry the same topology authority (#244): every subwoofer
+Subwoofers carry the same topology authority (legacy bolph71656-ai/HTDT-Capture#244): every subwoofer
 requires a typed channel/instance role (LFE1/LFE2/... or a custom
 token) and may carry an optional captured or yaw-entered body
 orientation — so multi-sub layouts are distinguishable without label
@@ -87,7 +87,7 @@ Optional equipment binding is not a loose model-name string. It stores:
 
 This is sufficient to bind capture annotations to a pinned HTDT equipment authority later.
 
-Compatibility is enforced below the UI (#237): the current
+Compatibility is enforced below the UI (legacy bolph71656-ai/HTDT-Capture#237): the current
 `o100c-equipment-definition-1` acoustic-source catalog contract only
 authorizes equipment references on speaker/subwoofer annotations. The
 builder rejects a tuple attached to an incompatible type or stamped
@@ -108,11 +108,11 @@ Each record can carry:
 - quantity token;
 - scalar or 3-vector value;
 - canonical SI unit (`m`, `rad`, `1`, `s`, `degC`, `%` — versioned
-  vocabulary extended for environmental quantities, issues #269/#253);
+  vocabulary extended for environmental quantities, issues bolph71656-ai/HTDT-Capture#269/legacy bolph71656-ai/HTDT-Capture#253);
 - coordinate-space authority when spatial;
 - endpoint references;
 - acquisition method (including `external_instrument` for metered
-  room-condition readings, issue #253);
+  room-condition readings, issue bolph71656-ai/HTDT-Capture#253);
 - instrument class/model;
 - calibration metadata;
 - uncertainty in the measurement unit;
@@ -122,16 +122,16 @@ Each record can carry:
 - exact user/source text;
 - optional structured source authority for `manufacturer_specification`
   values (document ref/revision, property key, pinned equipment
-  reference, source SHA-256 — issue #275);
+  reference, source SHA-256 — issue bolph71656-ai/HTDT-Capture#275);
 - optional derivation lineage (`algorithm` / `algorithm_version` /
-  `source_refs`) for computed values (issue #286);
+  `source_refs`) for computed values (issue bolph71656-ai/HTDT-Capture#286);
 - evidence references.
 
 A `user_attested_measurement` is invalid unless the record is actually marked attested.
 
 A versioned quantity registry (`MeasurementQuantityRegistry`) binds each
 standardized `quantity_type` token to a physical dimension, a canonical
-unit, a value shape, and endpoint semantics (issue #287). Production
+unit, a value shape, and endpoint semantics (issue bolph71656-ai/HTDT-Capture#287). Production
 producers — the manual builder and the derived builder — validate against
 it, so a registered length quantity cannot persist `rad` or `%`. Custom
 quantity tokens remain legal: an unregistered token skips registry
@@ -143,7 +143,7 @@ manifest declaration for `annotations/measurements.json` is derived as
 follows: a homogeneous collection declares its exact class, a heterogeneous
 collection declares `capture_app_derived` container authority (the same
 class an empty collection uses), and per-record `provenance_class` remains
-authoritative (issue #286). The manifest can never overclaim a mixed
+authoritative (issue bolph71656-ai/HTDT-Capture#286). The manifest can never overclaim a mixed
 collection as user-attested.
 
 Derived measurements are produced by `DerivedMeasurementBuilder`, which
@@ -179,7 +179,7 @@ Core tests cover:
 
 ## Remaining physical acceptance
 
-The software paths requested by Issue #5 are implemented: manual authoring,
+The software paths requested by Issue bolph71656-ai/HTDT-Capture#5 are implemented: manual authoring,
 canonical frame evidence linkage, live ARKit raycast placement, explicit
 speaker-heading capture, and exact EquipmentDefinition catalog selection.
 
@@ -188,7 +188,7 @@ plumbing:
 
 - verify live raycast behavior and placement accuracy on the target LiDAR device;
 - verify speaker-heading repeatability;
-- benchmark placement/orientation error under Issue #9.
+- benchmark placement/orientation error under Issue bolph71656-ai/HTDT-Capture#9.
 
 External Photos-library import remains intentionally outside the MVP because
 canonical ARFrame evidence already supplies an exact pose-linked photo source.
@@ -231,13 +231,13 @@ The current software-only editor supports:
 - type-appropriate reference-point semantics selection;
 - optional pinned HTDT equipment reference requiring exact
   equipment ID + version + SHA-256, offered only for compatible
-  annotation types (#237).
+  annotation types (legacy bolph71656-ai/HTDT-Capture#237).
 
 Placement provenance is `manual_numeric` unless the live raycast
 action is used; no raycast or mesh-hit provenance is fabricated by
 this UI. An evidence-captured placement additionally requires an
 explicit reference-point construction choice (confirmed hit vs.
-surface offset) before the record can be authored (#291).
+surface offset) before the record can be authored (legacy bolph71656-ai/HTDT-Capture#291).
 
 ### Measurement inputs
 
@@ -250,30 +250,30 @@ The editor supports user-attested scalar and vector measurements with:
   % or a 0–1 fraction for humidity — parsed deterministically
   (`.`/`,` decimal separators both accepted) and normalized to the
   canonical unit before authority creation, with the original text kept
-  in `source_value_text` (issue #235);
+  in `source_value_text` (issue bolph71656-ai/HTDT-Capture#235);
 - optional endpoint A/B bound to staged annotation authorities
-  (`entity:` refs) plus the capture `coordinate_space_id` (issue #215);
+  (`entity:` refs) plus the capture `coordinate_space_id` (issue bolph71656-ai/HTDT-Capture#215);
 - acquisition method — tape, laser, external instrument, manufacturer
   specification, other; derived methods are never offered to the manual
   path;
 - automatic UTC observation timestamp for live readings —
   manufacturer-specification values never receive one, so a datasheet
-  number is not mislabeled as a live observation (issue #238);
+  number is not mislabeled as a live observation (issue bolph71656-ai/HTDT-Capture#238);
 - optional stated uncertainty, source value text, instrument
   class/make/model, calibration status and calibration date;
 - for `manufacturer_specification`, a required-at-least-one structured
   source authority: document ref/revision, property key, source
-  SHA-256, or a pinned equipment reference (issue #275);
+  SHA-256, or a pinned equipment reference (issue bolph71656-ai/HTDT-Capture#275);
 - when both endpoints are bound, a derive action computes distance or
   displacement through `DerivedMeasurementBuilder` and appends a
   provenance-correct derived record alongside the manual one
-  (issue #286);
+  (issue bolph71656-ai/HTDT-Capture#286);
 - vector3 values authored either as raw components or via derived
-  displacement — always with coordinate-space binding (issue #270).
+  displacement — always with coordinate-space binding (issue bolph71656-ai/HTDT-Capture#270).
 
 Room-condition quantities (`air_temperature`, `relative_humidity`) are
 registry entries with `expectedEndpoints == 0`, so environmental
-readings never fabricate spatial endpoints (issue #253).
+readings never fabricate spatial endpoints (issue bolph71656-ai/HTDT-Capture#253).
 
 These records remain distinct from LiDAR/RoomPlan-derived measurement
 authorities.
@@ -282,7 +282,7 @@ The annotation entity vocabulary additionally includes
 `measurement_point` — a typed microphone-capsule/receiver point whose
 optional orientation authority captures the full 3D camera orientation
 (forward + up), not the flattened speaker-heading convention
-(issue #271). It never claims an FR/IR was acquired; it only records
+(issue bolph71656-ai/HTDT-Capture#271). It never claims an FR/IR was acquired; it only records
 where and in which direction a measurement microphone sat.
 
 ### Remaining hardware gates
@@ -291,7 +291,7 @@ Still not claimed by automated software checks:
 
 - physical verification of live raycast placement;
 - physical verification of speaker-heading capture;
-- physical placement/orientation repeatability benchmark under Issue #9.
+- physical placement/orientation repeatability benchmark under Issue bolph71656-ai/HTDT-Capture#9.
 
 The current raycast authority intentionally records ARKit raycast provenance
 without inventing a mesh-anchor identity. External Photos-library capture
@@ -340,7 +340,7 @@ If annotation editing is cancelled, staged annotation/measurement records are
 not written. Any ARFrame explicitly captured by a raycast action remains valid
 canonical evidence in the working revision rather than being silently deleted.
 
-Physical placement accuracy and repeatability remain Issue #9 hardware gates.
+Physical placement accuracy and repeatability remain Issue bolph71656-ai/HTDT-Capture#9 hardware gates.
 
 
 ## Evidence-linked speaker orientation capture
@@ -360,7 +360,7 @@ the user explicitly selects it. Position raycast and orientation capture remain
 independent authorities.
 
 This establishes the software path; speaker-orientation accuracy and
-repeatability remain physical benchmark gates under Issue #9.
+repeatability remain physical benchmark gates under Issue bolph71656-ai/HTDT-Capture#9.
 
 
 ## Exact HTDT equipment catalog picker

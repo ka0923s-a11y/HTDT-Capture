@@ -768,7 +768,7 @@ private func exportIdentityArchive(
             role: .canonical
         )
     )
-    // #194: finalized bundles carry the foundation payload set.
+    // legacy bolph71656-ai/HTDT-Capture#194: finalized bundles carry the foundation payload set.
     declarations.append(
         contentsOf: try BundleValidationFixture
             .stageFoundationPayloads(in: staging)
@@ -852,7 +852,7 @@ func archiveValidatorIndexesMultiEntryCentralDirectory() async throws {
     let report = try StoredCaptureBundleArchiveValidator.validate(
         archive: archive
     )
-    // 24 named payloads + quality + session×3 foundation (#194)
+    // 24 named payloads + quality + session×3 foundation (legacy bolph71656-ai/HTDT-Capture#194)
     #expect(report.payloadCount == 28)
 }
 

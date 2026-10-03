@@ -6,7 +6,7 @@ import ARKit
 import AVFoundation
 
 /// Typed outcomes for the bounded one-shot high-resolution request
-/// (#275) — busy, unsupported and ARKit failure stay distinct so the
+/// (legacy bolph71656-ai/HTDT-Capture#275) — busy, unsupported and ARKit failure stay distinct so the
 /// UI and diagnostics never conflate them.
 public enum HighResolutionEvidenceError: Error, Sendable, Equatable {
     /// `recommendedVideoFormatForHighResolutionFrameCapturing` reports
@@ -38,7 +38,7 @@ public struct HighResolutionEvidenceCapture: @unchecked Sendable {
     }
 }
 
-/// #275: bounded one-shot high-resolution evidence on the shared
+/// legacy bolph71656-ai/HTDT-Capture#275: bounded one-shot high-resolution evidence on the shared
 /// ARSession — never a second camera/AR session, at most one ARKit
 /// high-resolution request in flight, encode/write deferred to the
 /// caller's bounded persistence task.

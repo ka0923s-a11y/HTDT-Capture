@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #139: schema-owned free text is NFC-normalized at the
+// legacy bolph71656-ai/HTDT-Capture#139: schema-owned free text is NFC-normalized at the
 // authority-construction boundary so canonically equivalent input
 // produces identical canonical JSON.
 private let decomposedLabel = "Cafe\u{0301}" // "Café" decomposed

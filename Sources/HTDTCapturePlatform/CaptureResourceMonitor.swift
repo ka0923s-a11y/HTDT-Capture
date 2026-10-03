@@ -8,11 +8,11 @@ import UIKit
 /// Stable, machine-safe tokens used in `CaptureResourceEvent.detail` values
 /// produced by `CaptureResourceMonitor`. Event details are persisted in
 /// canonical `quality/capture-quality.json`, so they must never embed
-/// localized or platform-versioned text (#183).
+/// localized or platform-versioned text (legacy bolph71656-ai/HTDT-Capture#183).
 public enum CaptureResourceMonitorDetailToken {
     /// `volumeAvailableCapacityForImportantUsage` could not be determined:
     /// the query succeeded but the platform reported no value. Distinct from
-    /// "enough storage" — see #181.
+    /// "enough storage" — see legacy bolph71656-ai/HTDT-Capture#181.
     public static let storageCapacityUnavailable =
         "storage_capacity_unavailable"
     /// The capacity query threw. The detail appends the stable `NSError`
@@ -25,15 +25,15 @@ public struct CaptureResourceMonitorPolicy: Sendable, Equatable {
     public let storageWarningBytes: Int64
     public let storageCriticalBytes: Int64
     /// Low-frequency interval between periodic storage samples while the
-    /// monitor is started (#140).
+    /// monitor is started (legacy bolph71656-ai/HTDT-Capture#140).
     public let storageSampleInterval: Duration
     /// Capacity margin above a threshold required before the monitor reports
     /// recovery to a lower-pressure band, so capacity oscillation near a
-    /// boundary does not spam storage-pressure events (#140).
+    /// boundary does not spam storage-pressure events (legacy bolph71656-ai/HTDT-Capture#140).
     public let storageHysteresisBytes: Int64
     /// Hard bound on periodic samples per `start()` session. `0` disables
     /// periodic sampling; the explicit preflight assessment is unaffected
-    /// (#140).
+    /// (legacy bolph71656-ai/HTDT-Capture#140).
     public let maximumPeriodicStorageSamples: Int
 
     public init(
@@ -57,7 +57,7 @@ public struct CaptureResourceMonitorPolicy: Sendable, Equatable {
     }
 }
 
-/// One raw storage-capacity observation for the monitored volume (#181).
+/// One raw storage-capacity observation for the monitored volume (legacy bolph71656-ai/HTDT-Capture#181).
 public enum CaptureStorageSample: Sendable, Equatable {
     /// `volumeAvailableCapacityForImportantUsage` reported a byte count.
     case measured(availableBytes: Int64)
@@ -65,14 +65,14 @@ public enum CaptureStorageSample: Sendable, Equatable {
     /// is not evidence that storage is above the safety thresholds.
     case capacityUnavailable
     /// The query threw; `domain`/`code` are the stable `NSError` machine
-    /// identifiers, not localized text (#183).
+    /// identifiers, not localized text (legacy bolph71656-ai/HTDT-Capture#183).
     case queryFailed(domain: String, code: Int)
 }
 
 /// Typed storage condition behind a `CaptureResourceAssessment`, so callers
 /// can distinguish "enough storage" (no assessment) from "could not
 /// determine" (`.capacityUnavailable`/`.sampleFailed`) without parsing
-/// detail strings (#181).
+/// detail strings (legacy bolph71656-ai/HTDT-Capture#181).
 public enum CaptureStorageCondition: Sendable, Equatable {
     case storageWarning(availableBytes: Int64)
     case storageCritical(availableBytes: Int64)
@@ -83,7 +83,7 @@ public enum CaptureStorageCondition: Sendable, Equatable {
 public struct CaptureResourceAssessment: Sendable, Equatable {
     public let event: CaptureResourceEvent
     public let failure: CaptureFailureCode?
-    /// Machine-stable storage condition that produced `event` (#181).
+    /// Machine-stable storage condition that produced `event` (legacy bolph71656-ai/HTDT-Capture#181).
     /// Finalization preflight should treat `.capacityUnavailable` and
     /// `.sampleFailed` as fail-closed candidates rather than as evidence
     /// that remaining capacity is safe.
@@ -103,7 +103,7 @@ public struct CaptureResourceAssessment: Sendable, Equatable {
 /// Tracks the last emitted storage condition so periodic sampling emits an
 /// event only when the condition transitions, with a hysteresis margin on
 /// recovery so capacity oscillation near a threshold does not spam events
-/// (#140).
+/// (legacy bolph71656-ai/HTDT-Capture#140).
 public struct CaptureStoragePressureTracker: Sendable, Equatable {
     /// The condition currently treated as emitted/known.
     public enum State: String, Sendable, Equatable {
@@ -207,7 +207,7 @@ public struct CaptureStoragePressureTracker: Sendable, Equatable {
     }
 }
 
-/// Drives periodic storage sampling while a monitor is started (#140). The
+/// Drives periodic storage sampling while a monitor is started (legacy bolph71656-ai/HTDT-Capture#140). The
 /// production driver is a low-frequency task-loop timer; tests inject a
 /// manual driver so no test waits on real time.
 @MainActor
@@ -223,7 +223,7 @@ public protocol CaptureStorageSampleDriver: AnyObject, Sendable {
 }
 
 /// Default `CaptureStorageSampleDriver`: a task loop sleeping `interval`
-/// between ticks until cancelled (#140).
+/// between ticks until cancelled (legacy bolph71656-ai/HTDT-Capture#140).
 @MainActor
 public final class CaptureStorageSampleTimerDriver
     : CaptureStorageSampleDriver
@@ -272,7 +272,7 @@ public final class CaptureStorageSampleTimerDriver
 
 /// Ordered emission record for `CaptureResourceMonitor.eventLog`: the
 /// monitor-side chronology authority until `CaptureResourceEvent` carries
-/// `occurred_at_utc`/`sequence` itself (#190).
+/// `occurred_at_utc`/`sequence` itself (legacy bolph71656-ai/HTDT-Capture#190).
 public struct CaptureResourceMonitorLogEntry: Sendable, Equatable {
     /// Monotonic emission counter within the monitor instance; gives a
     /// deterministic total order even when wall-clock times tie.
@@ -305,9 +305,9 @@ public final class CaptureResourceMonitor: NSObject {
     /// Reads `volumeAvailableCapacityForImportantUsage` bytes for the
     /// monitored volume: a byte count when measured, `nil` when the platform
     /// reports the metadata as unavailable, or throws when the query fails
-    /// (#181).
+    /// (legacy bolph71656-ai/HTDT-Capture#181).
     public typealias StorageCapacitySource = () throws -> Int64?
-    /// UTC wall-clock source stamped on every emitted event (#190).
+    /// UTC wall-clock source stamped on every emitted event (legacy bolph71656-ai/HTDT-Capture#190).
     public typealias UTCTimestampProvider = () -> Date
     /// Thermal-state source; injectable so tests do not depend on the host
     /// machine's real thermal pressure.
@@ -328,12 +328,12 @@ public final class CaptureResourceMonitor: NSObject {
     /// Ordered log of every event this monitor emitted, oldest first. Each
     /// entry carries the monotonic `sequence` and UTC `occurredAtUTC` that
     /// will populate `CaptureResourceEvent` once the canonical model gains
-    /// `occurred_at_utc`/`sequence` fields (#190).
+    /// `occurred_at_utc`/`sequence` fields (legacy bolph71656-ai/HTDT-Capture#190).
     public private(set) var eventLog: [CaptureResourceMonitorLogEntry] = []
 
     /// The storage band the pressure tracker currently reports — the same
     /// signal that emits `storagePressure` events. Read-only exposure so
-    /// the optional-work admission policy (#273) consumes this authority's
+    /// the optional-work admission policy (legacy bolph71656-ai/HTDT-Capture#273) consumes this authority's
     /// band instead of re-deriving storage pressure.
     public var storagePressureState: CaptureStoragePressureTracker.State {
         storageTracker.state
@@ -410,7 +410,7 @@ public final class CaptureResourceMonitor: NSObject {
         isStarted = false
         NotificationCenter.default.removeObserver(self)
         // Cancel bounded periodic sampling; a later start() re-baselines the
-        // transition tracker (#140).
+        // transition tracker (legacy bolph71656-ai/HTDT-Capture#140).
         sampleDriver.cancel()
         periodicSamplesRemaining = 0
         storageTracker = CaptureStoragePressureTracker()
@@ -419,7 +419,7 @@ public final class CaptureResourceMonitor: NSObject {
     /// Unconditional storage assessment for explicit preflight checks such
     /// as finalization. `nil` means capacity was measured above the warning
     /// threshold; an unavailable or failed query returns an explicit typed
-    /// assessment instead of silently passing (#181).
+    /// assessment instead of silently passing (legacy bolph71656-ai/HTDT-Capture#181).
     public func currentStorageAssessment()
         -> CaptureResourceAssessment?
     {
@@ -431,7 +431,7 @@ public final class CaptureResourceMonitor: NSObject {
     }
 
     /// Performs a bounded one-shot storage sample while started and emits an
-    /// event only when the storage condition transitions (#140). For an
+    /// event only when the storage condition transitions (legacy bolph71656-ai/HTDT-Capture#140). For an
     /// unconditional preflight assessment use `currentStorageAssessment()`.
     public func sampleStorage() {
         guard isStarted else {
@@ -548,7 +548,7 @@ public final class CaptureResourceMonitor: NSObject {
             return .measured(availableBytes: available)
         } catch {
             // NSError domain + integer code are stable machine identifiers,
-            // unlike `localizedDescription` (#183). The domain is bounded so
+            // unlike `localizedDescription` (legacy bolph71656-ai/HTDT-Capture#183). The domain is bounded so
             // canonical detail bytes stay bounded.
             let nsError = error as NSError
             return .queryFailed(
@@ -653,7 +653,7 @@ public final class CaptureResourceMonitor: NSObject {
         emit(assessment.event, failure: assessment.failure)
     }
 
-    /// Low-frequency periodic sampling while started (#140). Bounded by
+    /// Low-frequency periodic sampling while started (legacy bolph71656-ai/HTDT-Capture#140). Bounded by
     /// `policy.maximumPeriodicStorageSamples` and cancelled by `stop()`;
     /// does not replace the explicit final preflight assessment.
     private func startPeriodicStorageSampling() {
@@ -678,7 +678,7 @@ public final class CaptureResourceMonitor: NSObject {
         emitStorageTransition(readStorageSample())
         if periodicSamplesRemaining == 0 {
             // The sampling budget is exhausted; stop polling rather than
-            // running an unbounded loop (#140).
+            // running an unbounded loop (legacy bolph71656-ai/HTDT-Capture#140).
             sampleDriver.cancel()
         }
     }
@@ -687,7 +687,7 @@ public final class CaptureResourceMonitor: NSObject {
 
     /// Single construction point for `CaptureResourceEvent`. Events are
     /// stamped with `occurred_at_utc`/`sequence` at emission time in
-    /// `emit` so persisted events share `eventLog` chronology (#190).
+    /// `emit` so persisted events share `eventLog` chronology (legacy bolph71656-ai/HTDT-Capture#190).
     private func makeEvent(
         kind: CaptureResourceEventKind,
         severity: QualityDiagnosticSeverity,
@@ -702,7 +702,7 @@ public final class CaptureResourceMonitor: NSObject {
 
     /// Central emission path: stamps the event with the monotonic
     /// sequence number and injected UTC timestamp, appends the ordered
-    /// `eventLog` entry, then invokes the host handler (#190). Stamping
+    /// `eventLog` entry, then invokes the host handler (legacy bolph71656-ai/HTDT-Capture#190). Stamping
     /// here — rather than in `makeEvent` — also covers events that were
     /// constructed before emission, such as storage assessments.
     private func emit(

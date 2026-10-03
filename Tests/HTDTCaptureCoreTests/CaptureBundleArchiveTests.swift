@@ -58,7 +58,7 @@ private func makeFinalizedArchiveFixture(
     )
     try Data([1, 2, 3, 4, 5]).write(to: payload)
     let qualityDeclaration = try stageQualityPayload(in: staging)
-    // #194: finalized bundles carry the foundation payload set.
+    // legacy bolph71656-ai/HTDT-Capture#194: finalized bundles carry the foundation payload set.
     let foundationDeclarations =
         try BundleValidationFixture.stageFoundationPayloads(
             in: staging
@@ -132,7 +132,7 @@ func storedZipExportPreservesLogicalBundleDigest() async throws {
 
     #expect(result.archiveURL == destination)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    // payload.bin + quality + session×3 foundation (#194)
+    // payload.bin + quality + session×3 foundation (legacy bolph71656-ai/HTDT-Capture#194)
     #expect(result.payloadCount == 5)
     #expect(result.entryCount == 6)
 
@@ -314,7 +314,7 @@ private func makeTwoPayloadFinalizedFixture(
         to: staging.appendingPathComponent("bravo.bin")
     )
     let qualityDeclaration = try stageQualityPayload(in: staging)
-    // #194: finalized bundles carry the foundation payload set.
+    // legacy bolph71656-ai/HTDT-Capture#194: finalized bundles carry the foundation payload set.
     let foundationDeclarations =
         try BundleValidationFixture.stageFoundationPayloads(
             in: staging
@@ -879,7 +879,7 @@ func archiveValidatorStillRejectsForeignFlagBits() async throws {
     }
 }
 
-// MARK: - Existing-archive export recovery (#118)
+// MARK: - Existing-archive export recovery (legacy bolph71656-ai/HTDT-Capture#118)
 
 /// The deterministic export destination is a derived transport wrapper:
 /// a validated archive carrying the finalized revision's digest is
@@ -1077,7 +1077,7 @@ func storedArchiveReaderExtractsSingleEntry() async throws {
     )
 
     // STORED entries sit uncompressed after their local header —
-    // a single small payload (like a frame preview, issue #219) can
+    // a single small payload (like a frame preview, issue bolph71656-ai/HTDT-Capture#219) can
     // be read without walking or decompressing the package.
     #expect(
         StoredCaptureBundleArchiveReader.readEntry(

@@ -7,24 +7,24 @@ public struct CaptureReviewView: View {
     public let advisory: CaptureAdvisoryReport?
     public let validation: BundleValidationReport?
     /// Advisory spatial-plausibility findings for the committed
-    /// annotations (#247). nil means the accepted room geometry was
+    /// annotations (legacy bolph71656-ai/HTDT-Capture#247). nil means the accepted room geometry was
     /// unavailable — the section then reports "analysis unavailable"
     /// rather than implying a pass.
     public let spatialFindings: [SpatialPlausibilityFinding]?
     /// Whether the working set's spatial authority is live (issue
-    /// #297): false on a relaunch-recovered draft, where actions
+    /// legacy bolph71656-ai/HTDT-Capture#297): false on a relaunch-recovered draft, where actions
     /// requiring a live scan (Continue scanning, save evidence frame)
     /// are filtered out of every remediation plan.
     public let spatialAuthorityLive: Bool
     /// Whether spatial capture is sealed for finalization (issue
-    /// #276): a live review interrupted post-End keeps
+    /// legacy bolph71656-ai/HTDT-Capture#276): a live review interrupted post-End keeps
     /// `spatialAuthorityLive` true but must not offer scan-time
     /// remediation — those actions are guaranteed dead taps.
     public let spatialAuthoritySealed: Bool
-    /// Practice-mode capture (issue #320): remediation reads as
+    /// Practice-mode capture (issue bolph71656-ai/HTDT-Capture#320): remediation reads as
     /// rehearsal guidance; finalization is never offered.
     public let practiceCapture: Bool
-    /// Corrective-action sink (issue #298). nil renders remediation
+    /// Corrective-action sink (issue bolph71656-ai/HTDT-Capture#298). nil renders remediation
     /// explanations without buttons — e.g. a finalized-capture viewer.
     public let onRemediationAction:
         ((CaptureRemediationAction) -> Void)?
@@ -175,7 +175,7 @@ public struct CaptureReviewView: View {
             if let task = advisory?.taskCompleteness {
                 Section("Capture task") {
                     taskCompletenessRows(task)
-                    // #298: task-completeness gaps get the same
+                    // legacy bolph71656-ai/HTDT-Capture#298: task-completeness gaps get the same
                     // corrective-action surface as quality
                     // diagnostics — an unmet requirement is actionable,
                     // not just reported.
@@ -242,7 +242,7 @@ public struct CaptureReviewView: View {
                 if quality.diagnostics.isEmpty {
                     Text("No quality diagnostics.")
                 } else {
-                    // #298: every diagnostic carries a typed
+                    // legacy bolph71656-ai/HTDT-Capture#298: every diagnostic carries a typed
                     // remediation — why it matters, whether it blocks
                     // finalization, and the direct corrective action
                     // affordances. Live-spatial actions are filtered on
@@ -340,7 +340,7 @@ public struct CaptureReviewView: View {
         .navigationTitle("Capture Review")
     }
 
-    /// #217: an empty requirement set must not read "Complete" — that
+    /// legacy bolph71656-ai/HTDT-Capture#217: an empty requirement set must not read "Complete" — that
     /// conflates technical ingestion readiness with capture-task
     /// completeness. The technical row states the requirement
     /// configuration plus the observed count; the task-level verdict
@@ -607,7 +607,7 @@ public struct CaptureReviewView: View {
         if let remoteWeak = summary.remoteWeakRegionCount,
            remoteWeak > 0
         {
-            // #347: retained weak regions beyond the operator's final
+            // legacy bolph71656-ai/HTDT-Capture#347: retained weak regions beyond the operator's final
             // map window stay unresolved and are reported as such.
             LabeledContent(
                 "Weak beyond map view",
@@ -621,7 +621,7 @@ public struct CaptureReviewView: View {
         if let evictions = summary.spatialRegionEvictionCount,
            evictions > 0
         {
-            // #336: capacity eviction is reported, never silent.
+            // legacy bolph71656-ai/HTDT-Capture#336: capacity eviction is reported, never silent.
             LabeledContent(
                 "Dropped for capacity",
                 value: String(
@@ -632,7 +632,7 @@ public struct CaptureReviewView: View {
             )
         }
         if let directionReference = summary.directionReference {
-            // #343: the convention marker identifies whether labels
+            // legacy bolph71656-ai/HTDT-Capture#343: the convention marker identifies whether labels
             // were start-relative or bound to a room reference frame.
             LabeledContent(
                 "Direction reference",
@@ -667,7 +667,7 @@ public struct CaptureReviewView: View {
                     summary.guidanceMaximumAttempts
                 )
         )
-        // #329: the 3D vertical layer, when persisted, is reported
+        // legacy bolph71656-ai/HTDT-Capture#329: the 3D vertical layer, when persisted, is reported
         // separately so a floor-level "observed" cannot hide an
         // unobserved ceiling at the same X/Z cell.
         if let voxelCount = summary.verticalVoxelCount,
@@ -932,7 +932,7 @@ public struct CaptureReviewView: View {
         }
     }
 
-    /// The frozen status vocabulary (#361) applied to the review
+    /// The frozen status vocabulary (legacy bolph71656-ai/HTDT-Capture#361) applied to the review
     /// diagnostic surfaces.
     private func roomPlanStatus(
         _ status: RoomPlanQualityStatus
@@ -1072,9 +1072,9 @@ public struct CaptureReviewView: View {
     }
 
     /// User-facing label for the persisted guidance-completion source
-    /// (issue #296): "completed" is always qualified by *how* it
+    /// (issue bolph71656-ai/HTDT-Capture#296): "completed" is always qualified by *how* it
     /// completed so a bounded termination never reads as observed
-    /// completeness. Pre-#296 payloads carry nil and stay honest.
+    /// completeness. Pre-legacy bolph71656-ai/HTDT-Capture#296 payloads carry nil and stay honest.
     private func localizedGuidanceCompletionSource(
         _ source: String?
     ) -> String {
@@ -1115,7 +1115,7 @@ public struct CaptureReviewView: View {
         }
     }
 
-    /// Corrective affordances for one diagnostic (issue #298). When
+    /// Corrective affordances for one diagnostic (issue bolph71656-ai/HTDT-Capture#298). When
     /// no remediation sink is wired — the finalized-capture viewer —
     /// nothing renders; on a recovered draft the live-spatial actions
     /// are already filtered by `draftActions`.
@@ -1161,7 +1161,7 @@ public struct CaptureReviewView: View {
     }
 
     /// Why-this-matters copy keyed to the diagnostic code (issue
-    /// #298): an action surface without the consequence it clears is
+    /// legacy bolph71656-ai/HTDT-Capture#298): an action surface without the consequence it clears is
     /// noise. The prefix states blocking vs advisory.
     private func remediationWhyText(
         _ remediation: QualityRemediation

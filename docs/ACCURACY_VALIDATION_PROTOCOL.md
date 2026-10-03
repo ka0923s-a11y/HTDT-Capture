@@ -1,7 +1,7 @@
 # HTDT-Capture Spatial Accuracy Validation Protocol
 
 Status: Engineering protocol v1.0.0
-Related issue: #9
+Related issue: legacy bolph71656-ai/HTDT-Capture#9
 
 ## 1. Purpose
 

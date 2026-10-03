@@ -2,7 +2,7 @@
 
 Stdlib-only validator covering exactly the keyword surface used by
 ``schemas/htdt-ingestion-plan-v1.schema.json`` so the reference ingestor's
-emitted plan can be pinned to the published wire contract in CI (#154).
+emitted plan can be pinned to the published wire contract in CI (legacy bolph71656-ai/HTDT-Capture#154).
 It is intentionally not a general JSON Schema implementation.
 """
 

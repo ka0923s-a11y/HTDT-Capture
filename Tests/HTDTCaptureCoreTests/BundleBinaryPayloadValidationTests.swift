@@ -438,6 +438,6 @@ func consistentBinaryEvidenceBundleAccepted() throws {
 
     let report = try BundleDirectoryValidator.validate(root: root)
     #expect(report.valid)
-    // 6 evidence payloads + auto-staged foundation set (#194)
+    // 6 evidence payloads + auto-staged foundation set (legacy bolph71656-ai/HTDT-Capture#194)
     #expect(report.payloadCount == 10)
 }

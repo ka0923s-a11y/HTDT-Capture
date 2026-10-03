@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #374: endpoint capability handshake — document decoding and
+/// Issue bolph71656-ai/HTDT-Capture#374: endpoint capability handshake — document decoding and
 /// the pure compatibility classifier's hard-gap vs omission split.
 final class HTDTEndpointCapabilityTests: XCTestCase {
     private func makeCapabilities(
@@ -242,7 +242,7 @@ final class HTDTEndpointCapabilityTests: XCTestCase {
         XCTAssertTrue(collection.presentAuthorityFamilies().isEmpty)
     }
 
-    /// #448: a receiver that enumerates accepted_artifact_kinds
+    /// legacy bolph71656-ai/HTDT-Capture#448: a receiver that enumerates accepted_artifact_kinds
     /// without a capture_bundle entry cannot stage captures at all —
     /// bundle preflight enforces the same kind admission the
     /// field-return preflight already did.
@@ -273,7 +273,7 @@ final class HTDTEndpointCapabilityTests: XCTestCase {
         XCTAssertFalse(verdict.sendPermitted)
     }
 
-    /// #448: the kind admission's own schema-version list and byte
+    /// legacy bolph71656-ai/HTDT-Capture#448: the kind admission's own schema-version list and byte
     /// ceiling apply to the bundle — a receiver may accept bundle
     /// bytes only inside its advertised per-kind contract.
     func testKindAdmissionScopesBundleVersionsAndBytes() {
@@ -322,9 +322,9 @@ final class HTDTEndpointCapabilityTests: XCTestCase {
         )
     }
 
-    /// #448: a legacy receiver that never advertises
+    /// legacy bolph71656-ai/HTDT-Capture#448: a legacy receiver that never advertises
     /// accepted_artifact_kinds still admits capture bundles via the
-    /// documented capture_bundle-only default (#423 §14).
+    /// documented capture_bundle-only default (legacy bolph71656-ai/HTDT-Capture#423 §14).
     func testLegacyReceiverDefaultsAdmitCaptureBundle() {
         let verdict = HTDTCompatibilityChecker.check(
             inventory: makeInventory(),

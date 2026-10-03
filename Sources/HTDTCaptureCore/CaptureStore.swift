@@ -24,7 +24,7 @@ public struct CaptureStoreBudgetSnapshot: Sendable, Equatable {
     public let maxItems: Int
 }
 
-/// Bounded pending-write admission ledger (issue #147). Serialized by
+/// Bounded pending-write admission ledger (issue bolph71656-ai/HTDT-Capture#147). Serialized by
 /// a lock rather than the actor runtime so `release` can run
 /// synchronously inside `defer` at every persistence entry point —
 /// reservation release must be deterministic on success, failure, and
@@ -143,7 +143,7 @@ public actor AtomicCaptureFileWriter {
 
     /// Byte-exact comparison between a file on disk and `expected`,
     /// streamed through bounded chunks instead of materializing a
-    /// second full-size copy of a large payload (issue #147).
+    /// second full-size copy of a large payload (issue bolph71656-ai/HTDT-Capture#147).
     private func fileBytesEqual(
         _ url: URL,
         _ expected: Data
@@ -318,7 +318,7 @@ public actor AtomicCaptureFileWriter {
 
     /// Atomically replaces the target bytes for every request, restoring
     /// the exact prior bytes if any replacement fails partway through
-    /// (issue #163). Each file is staged through a same-directory
+    /// (issue bolph71656-ai/HTDT-Capture#163). Each file is staged through a same-directory
     /// temporary and swapped atomically, so a reader never observes a
     /// truncated payload; a failed later request restores each earlier
     /// target to its original bytes, or removes a path the batch created.
@@ -673,7 +673,7 @@ public actor AtomicCaptureFileWriter {
     /// returns only after every request submitted to this actor before
     /// it has completed, giving the sealing caller a deterministic
     /// quiescence point without touching the filesystem itself
-    /// (issue #180).
+    /// (issue bolph71656-ai/HTDT-Capture#180).
     public func barrier() async {}
 
     // NOTE: the finalization seal drains in-flight mutations through a

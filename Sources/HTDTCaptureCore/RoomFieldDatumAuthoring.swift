@@ -15,7 +15,7 @@ public enum RoomFieldDatumAuthoringError:
     case missingStatedValue
 }
 
-/// Bounded operand for the datum origin (issue #232): every pick maps
+/// Bounded operand for the datum origin (issue bolph71656-ai/HTDT-Capture#232): every pick maps
 /// to an install-meaningful source — the confirmed room frame, an
 /// authored entity position, or an operator-stated point — so the
 /// persisted record names real evidence, never an arbitrary vector.
@@ -48,7 +48,7 @@ public enum RoomFieldDatumAxisOperand: Sendable, Equatable {
     case statedDirection(RoomFieldDatumAxisKind)
 }
 
-/// Bounded operand for the vertical datum (issue #232): which
+/// Bounded operand for the vertical datum (issue bolph71656-ai/HTDT-Capture#232): which
 /// elevation maps to field Z = 0, and where that elevation was
 /// declared from.
 public enum RoomFieldDatumVerticalOperand: Sendable, Equatable {
@@ -60,7 +60,7 @@ public enum RoomFieldDatumVerticalOperand: Sendable, Equatable {
     case fromEntity(RoomFieldDatumVerticalKind, AnnotationEntityID)
 }
 
-/// Everything the bounded authoring UI submits to the host (#232):
+/// Everything the bounded authoring UI submits to the host (legacy bolph71656-ai/HTDT-Capture#232):
 /// the three operands plus the free values only `statedPoint` /
 /// `statedDirection` operands consume.
 public struct RoomFieldDatumAuthoringRequest:
@@ -115,7 +115,7 @@ public struct RoomFieldDatumResolution: Sendable, Equatable {
 
 /// Resolves bounded operand picks into a datum declaration against
 /// the working set's committed entities/measurements/room frame
-/// (issue #232). Resolution is pure and testable: UI supplies the
+/// (issue bolph71656-ai/HTDT-Capture#232). Resolution is pure and testable: UI supplies the
 /// operands, the host supplies the workspace data, and the caller
 /// builds + commits the document.
 public enum RoomFieldDatumAuthoring {

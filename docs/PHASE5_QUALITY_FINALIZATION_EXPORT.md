@@ -1,7 +1,7 @@
 # Phase 5 Quality, Finalization, and Export Implementation Record
 
 Status: Software implementation complete  
-Issue: #6 (closed)
+Issue: legacy bolph71656-ai/HTDT-Capture#6 (closed)
 
 ## Implemented
 

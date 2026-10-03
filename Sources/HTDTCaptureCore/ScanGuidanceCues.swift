@@ -1,6 +1,6 @@
 import Foundation
 
-/// Non-visual scan-guidance cues (#252).
+/// Non-visual scan-guidance cues (legacy bolph71656-ai/HTDT-Capture#252).
 ///
 /// Each cue maps to a distinct haptic/VoiceOver signal on the host.
 /// The policy is strictly edge-triggered and rate-limited: a 4 Hz
@@ -14,7 +14,7 @@ public enum ScanGuidanceCue: String, Sendable, Equatable, CaseIterable {
     case moveRight = "move_right"
     case moveForward = "move_forward"
     case moveBack = "move_back"
-    /// In-place yaw instruction — never "move" wording (#252 cue map).
+    /// In-place yaw instruction — never "move" wording (legacy bolph71656-ai/HTDT-Capture#252 cue map).
     case turnLeft = "turn_left"
     case turnRight = "turn_right"
     case tiltUp = "tilt_up"
@@ -29,7 +29,7 @@ public enum ScanGuidanceCue: String, Sendable, Equatable, CaseIterable {
     case guidanceComplete = "guidance_complete"
     case endAvailable = "end_available"
     case evidenceSaved = "evidence_saved"
-    /// A revisit flag was recorded during scanning (#325) — one-shot
+    /// A revisit flag was recorded during scanning (legacy bolph71656-ai/HTDT-Capture#325) — one-shot
     /// confirmation haptic where non-visual cues are enabled.
     case revisitFlagSaved = "revisit_flag_saved"
 }
@@ -179,7 +179,7 @@ public struct ScanGuidanceCuePolicy: Sendable, Equatable {
             : nil
     }
 
-    /// One-shot confirmation that a revisit flag was persisted (#325).
+    /// One-shot confirmation that a revisit flag was persisted (legacy bolph71656-ai/HTDT-Capture#325).
     public mutating func revisitFlagSaved(
         timestampSeconds: Double
     ) -> ScanGuidanceCue? {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The depth evidence a contact-sheet tile carries (issue #376) — a
+/// The depth evidence a contact-sheet tile carries (issue bolph71656-ai/HTDT-Capture#376) — a
 /// summary of the committed descriptor's depth authority, never the
 /// payload bytes themselves.
 public enum ContactSheetDepthSummary: Sendable, Equatable {
@@ -32,7 +32,7 @@ public enum ContactSheetDepthSummary: Sendable, Equatable {
     }
 }
 
-/// One contact-sheet tile (issue #376): the committed evidence-frame
+/// One contact-sheet tile (issue bolph71656-ai/HTDT-Capture#376): the committed evidence-frame
 /// item plus the pre-finalization review metadata — pose heading,
 /// depth/confidence summary, usability warnings, reference counts and
 /// privacy flag — computed from the same declared payload set the
@@ -54,7 +54,7 @@ public struct EvidenceContactSheetItem: Sendable, Equatable, Identifiable {
     public let usabilityStatus: FrameUsabilityStatus?
     public let usabilityIssues: [FrameUsabilityIssue]
     /// Operator privacy flag recorded via a `privacy_flag` advisory
-    /// note naming this frame (#376).
+    /// note naming this frame (legacy bolph71656-ai/HTDT-Capture#376).
     public let privacyFlagged: Bool
 
     public init(
@@ -84,7 +84,7 @@ public struct EvidenceContactSheetItem: Sendable, Equatable, Identifiable {
     }
 }
 
-/// Contact-sheet filters (issue #376). Filters AND together — a tile
+/// Contact-sheet filters (issue bolph71656-ai/HTDT-Capture#376). Filters AND together — a tile
 /// must satisfy every active predicate to show.
 public struct EvidenceContactSheetFilter: OptionSet, Sendable, Equatable {
     public let rawValue: Int
@@ -109,7 +109,7 @@ public struct EvidenceContactSheetFilter: OptionSet, Sendable, Equatable {
     public static let all: Self = []
 }
 
-/// Contact-sheet ordering (issue #376).
+/// Contact-sheet ordering (issue bolph71656-ai/HTDT-Capture#376).
 public enum EvidenceContactSheetSort: String, Sendable, Equatable {
     /// Scan order — session timestamp, frame id on ties.
     case captureTime = "capture_time"
@@ -123,7 +123,7 @@ public enum EvidenceContactSheetSort: String, Sendable, Equatable {
     case byteSize = "byte_size"
 }
 
-/// Per-tile removal assessment (issue #376). `removable` is the only
+/// Per-tile removal assessment (issue bolph71656-ai/HTDT-Capture#376). `removable` is the only
 /// state that deletes bytes; every other state carries the dependents
 /// or the reason so the UI can show *why* — never a silent refuse.
 public enum ContactSheetRemovalAssessment: Sendable, Equatable {
@@ -138,7 +138,7 @@ public enum ContactSheetRemovalAssessment: Sendable, Equatable {
     case readOnlyBundle
 }
 
-/// A multi-select removal plan (issue #376): the tiles that may be
+/// A multi-select removal plan (issue bolph71656-ai/HTDT-Capture#376): the tiles that may be
 /// removed now, and the tiles blocked with the dependents shown.
 public struct ContactSheetRemovalPlan: Sendable, Equatable {
     public struct Blocked: Sendable, Equatable {
@@ -153,7 +153,7 @@ public struct ContactSheetRemovalPlan: Sendable, Equatable {
     public let reclaimableBytes: Int64
 }
 
-/// The pre-finalization evidence contact sheet model (issue #376).
+/// The pre-finalization evidence contact sheet model (issue bolph71656-ai/HTDT-Capture#376).
 /// Built from the same declared payload set the Review workspace
 /// loads, so every tile refers to committed, integrity-covered bytes.
 /// The model carries no image data — tiles resolve thumbnails lazily
@@ -161,7 +161,7 @@ public struct ContactSheetRemovalPlan: Sendable, Equatable {
 public struct EvidenceContactSheetModel: Sendable, Equatable {
     public let items: [EvidenceContactSheetItem]
     /// True when the sheet presents a persisted (finalized or
-    /// exported) bundle — removal is read-only (#376).
+    /// exported) bundle — removal is read-only (legacy bolph71656-ai/HTDT-Capture#376).
     public let readOnly: Bool
 
     public init(
@@ -245,7 +245,7 @@ public struct EvidenceContactSheetModel: Sendable, Equatable {
                     privacyFlagged.insert(frameID)
                 }
             case .privacyFlagCleared:
-                // #460: notes replay in capture order — a clearing
+                // legacy bolph71656-ai/HTDT-Capture#460: notes replay in capture order — a clearing
                 // note recorded after the flag lifts it again.
                 if let frameID = frameToken(note.detail) {
                     privacyFlagged.remove(frameID)
@@ -384,7 +384,7 @@ public struct EvidenceContactSheetModel: Sendable, Equatable {
         return result
     }
 
-    /// Total retained bytes across all tiles (issue #376): the same
+    /// Total retained bytes across all tiles (issue bolph71656-ai/HTDT-Capture#376): the same
     /// sum the Review byte total reports.
     public var totalRetainedBytes: Int64 {
         items.reduce(0) { $0 + $1.item.byteCount }
@@ -397,7 +397,7 @@ public struct EvidenceContactSheetModel: Sendable, Equatable {
             .reduce(0) { $0 + $1.item.byteCount }
     }
 
-    /// Per-tile removal classification (issue #376): referenced or
+    /// Per-tile removal classification (issue bolph71656-ai/HTDT-Capture#376): referenced or
     /// end-boundary tiles report the dependents that must be resolved
     /// first rather than deleting bytes silently.
     public func removalAssessment(
@@ -423,7 +423,7 @@ public struct EvidenceContactSheetModel: Sendable, Equatable {
         return .removable
     }
 
-    /// The multi-select removal plan (issue #376): everything
+    /// The multi-select removal plan (issue bolph71656-ai/HTDT-Capture#376): everything
     /// removable in one pass plus the blocked tiles with the
     /// dependents shown, so a bulk removal never half-applies
     /// silently.
@@ -472,7 +472,7 @@ public struct EvidenceContactSheetModel: Sendable, Equatable {
     }
 
     /// The frame-id → tile index map for frame↔annotation jumps
-    /// (issue #376): a caller asks for the tile of a known frame and
+    /// (issue bolph71656-ai/HTDT-Capture#376): a caller asks for the tile of a known frame and
     /// scrolls it into view, or resolves which tiles an annotation's
     /// evidence refs name.
     public func tileIndex(of frameID: EvidenceFrameID) -> Int? {

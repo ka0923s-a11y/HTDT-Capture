@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// Scan copilot tests (#272). The binding guarantees exercised here:
+/// Scan copilot tests (legacy bolph71656-ai/HTDT-Capture#272). The binding guarantees exercised here:
 /// the context stays bounded and versioned; the validator accepts
 /// zero unsafe-movement or finish-class suggestions; and every
 /// model-path failure resolves to the deterministic baseline.

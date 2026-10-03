@@ -3,8 +3,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 import HTDTCaptureCore
 
-/// Task-oriented annotation form (#220) used for both adding a new
-/// entity and editing a staged one (#245 — the entity's `entityID` and
+/// Task-oriented annotation form (legacy bolph71656-ai/HTDT-Capture#220) used for both adding a new
+/// entity and editing a staged one (legacy bolph71656-ai/HTDT-Capture#245 — the entity's `entityID` and
 /// untouched fields survive the edit). The primary path exposes home-
 /// theater tasks — templates, typed channel roles, camera-first
 /// placement and heading — while raw schema controls live under an
@@ -25,7 +25,7 @@ public struct AnnotationEntityForm: View {
     /// Shared AR preview for the camera sheets; nil disables camera
     /// capture controls (they stay visible but report unavailable).
     public let cameraPreview: AnyView?
-    /// Spatial authority sealed for finalization (#276): camera
+    /// Spatial authority sealed for finalization (legacy bolph71656-ai/HTDT-Capture#276): camera
     /// placement/orientation capture can no longer write live spatial
     /// evidence, so the camera affordances hide like `cameraPreview`
     /// being nil. Semantic edits stay open.
@@ -39,19 +39,19 @@ public struct AnnotationEntityForm: View {
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Full-3D orientation capture for measurement-point direction
-    /// authority (issue #271); distinct from the horizontal-heading
+    /// authority (issue bolph71656-ai/HTDT-Capture#271); distinct from the horizontal-heading
     /// `captureSpeakerOrientation` convention.
     public let capturePointOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Captures a plain evidence frame for equipment identity photos
-    /// (#239); returns its canonical `path:` ref.
+    /// (legacy bolph71656-ai/HTDT-Capture#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
     /// Versioned layout profile this form binds speaker roles to
-    /// (#315). When non-nil the speaker/subwoofer role picker offers
+    /// (legacy bolph71656-ai/HTDT-Capture#315). When non-nil the speaker/subwoofer role picker offers
     /// the profile's logical role IDs and the saved entity records a
     /// `role_binding`; nil keeps the legacy free-token behavior.
     public let layoutProfile: SpeakerLayoutProfile?
-    /// Label-scan assist (#345): captures a close-up label frame,
+    /// Label-scan assist (legacy bolph71656-ai/HTDT-Capture#345): captures a close-up label frame,
     /// runs OCR/barcode recognition, and returns suggestion
     /// candidates for the operator to confirm. Nil hides the control;
     /// a result never commits fields by itself.
@@ -86,14 +86,14 @@ public struct AnnotationEntityForm: View {
         AnnotationOrientationAuthority?
     @State private var yawText = ""
     @State private var yawEdited = false
-    // Speaker aim pitch (#228): tilted/Atmos speakers record
+    // Speaker aim pitch (legacy bolph71656-ai/HTDT-Capture#228): tilted/Atmos speakers record
     // elevation alongside azimuth.
     @State private var elevationText = ""
     @State private var elevationEdited = false
 
-    // Contract detail fields: typed listening role (#243), explicit
-    // reference-point semantics/construction (#291), optional
-    // physical envelope (#230).
+    // Contract detail fields: typed listening role (legacy bolph71656-ai/HTDT-Capture#243), explicit
+    // reference-point semantics/construction (legacy bolph71656-ai/HTDT-Capture#291), optional
+    // physical envelope (legacy bolph71656-ai/HTDT-Capture#230).
     @State private var listeningRole: ListeningPositionRole
     @State private var semanticsSelection: String
     @State private var referencePointConstruction:
@@ -112,7 +112,7 @@ public struct AnnotationEntityForm: View {
     @State private var equipmentHash = ""
     @State private var equipmentAuthorityVersion: String?
 
-    // Equipment identity evidence (#239).
+    // Equipment identity evidence (legacy bolph71656-ai/HTDT-Capture#239).
     @State private var identityEvidenceRefs: [String] = []
     @State private var serialText = ""
     @State private var attestedPhysicalMatch = false
@@ -127,10 +127,10 @@ public struct AnnotationEntityForm: View {
     @State private var showingAdvanced = false
     @State private var errorText: String?
     @State private var capturingPointDirection = false
-    // Profile role binding (#315): the logical role ID selected in
+    // Profile role binding (legacy bolph71656-ai/HTDT-Capture#315): the logical role ID selected in
     // the active profile; "" means unbound/legacy channel token.
     @State private var selectedRoleBindingID: String
-    // Label-scan assist (#345).
+    // Label-scan assist (legacy bolph71656-ai/HTDT-Capture#345).
     @State private var scanningLabel = false
     @State private var scanResult: EquipmentLabelScanResult?
     @State private var labelScanProvenance:
@@ -269,7 +269,7 @@ public struct AnnotationEntityForm: View {
             initialValue: Self.coordText(seed.positionMeters.z)
         )
         _positionEdited = State(initialValue: false)
-        // #228: a fresh speaker starts aim-unset — an entered yaw
+        // legacy bolph71656-ai/HTDT-Capture#228: a fresh speaker starts aim-unset — an entered yaw
         // (or a captured heading) produces the aim; nothing
         // fabricates one. Other types keep the legacy 0° default.
         _yawText = State(
@@ -328,7 +328,7 @@ public struct AnnotationEntityForm: View {
         )
         // Preserve every ref the entity already carries as a user
         // selection so an edit never silently drops evidence; fresh
-        // captures add their authority-owned refs on top (#245).
+        // captures add their authority-owned refs on top (legacy bolph71656-ai/HTDT-Capture#245).
         _evidenceSelection = State(
             initialValue: AnnotationEvidenceSelection(
                 userSelected: Set(editingEntity?.evidenceRefs ?? [])
@@ -343,7 +343,7 @@ public struct AnnotationEntityForm: View {
     }
 
     /// The current HTDT catalog's acoustic-source authority only
-    /// covers speaker/subwoofer annotations (#237); other types never
+    /// covers speaker/subwoofer annotations (legacy bolph71656-ai/HTDT-Capture#237); other types never
     /// see the equipment picker.
     private var equipmentCompatible: Bool {
         HTDTEquipmentCompatibility.compatibleTypes(
@@ -353,7 +353,7 @@ public struct AnnotationEntityForm: View {
     }
 
     /// Constructions valid for the currently captured placement
-    /// method (#291): mesh/raycast hits are surface-derived; a
+    /// method (legacy bolph71656-ai/HTDT-Capture#291): mesh/raycast hits are surface-derived; a
     /// RoomPlan object binding is a direct placement.
     private var availableConstructions: [ReferencePointConstruction] {
         guard let placementAuthority else { return [] }
@@ -403,7 +403,7 @@ public struct AnnotationEntityForm: View {
                         : newType == .speaker ? .left
                         : nil
                     customRoleText = ""
-                    // Profile-bound role pick (#315): default to the
+                    // Profile-bound role pick (legacy bolph71656-ai/HTDT-Capture#315): default to the
                     // profile's first matching logical role so a fresh
                     // speaker starts bound, never free-token.
                     if let layoutProfile,
@@ -777,7 +777,7 @@ public struct AnnotationEntityForm: View {
         ) {
             if isSpeakerLike {
                 if let layoutProfile {
-                    // Profile-bound logical role picker (#315): the
+                    // Profile-bound logical role picker (legacy bolph71656-ai/HTDT-Capture#315): the
                     // choice writes both the physical channel_role
                     // token and the exact role_binding triple.
                     let roles = layoutProfile.roles.filter {
@@ -869,7 +869,7 @@ public struct AnnotationEntityForm: View {
                         )
                     )
                 )
-                // #228: the captured aim is full-3D — surface tilt
+                // legacy bolph71656-ai/HTDT-Capture#228: the captured aim is full-3D — surface tilt
                 // when the front axis is not gravity-horizontal.
                 let capturedPitch =
                     asin(
@@ -970,7 +970,7 @@ public struct AnnotationEntityForm: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                // Label-scan assist (#345): runs Vision OCR/barcode on
+                // Label-scan assist (legacy bolph71656-ai/HTDT-Capture#345): runs Vision OCR/barcode on
                 // a fresh close-up frame and offers candidates for
                 // explicit confirmation — never auto-fills anything.
                 if let scanEquipmentLabel {
@@ -999,7 +999,7 @@ public struct AnnotationEntityForm: View {
                     }
                 }
 
-                // Physical-device identity evidence (#239): optional,
+                // Physical-device identity evidence (legacy bolph71656-ai/HTDT-Capture#239): optional,
                 // explicit, and distinct from placement evidence.
                 Section(
                     String(localized: "Physical device identity")
@@ -1061,7 +1061,7 @@ public struct AnnotationEntityForm: View {
                 String(localized: "Advanced"),
                 isExpanded: $showingAdvanced
             ) {
-                // Raw schema surfaces kept explicitly available (#220).
+                // Raw schema surfaces kept explicitly available (legacy bolph71656-ai/HTDT-Capture#220).
                 TextField(
                     String(localized: "Raw entity type"),
                     text: .constant(type.rawValue)
@@ -1256,7 +1256,7 @@ public struct AnnotationEntityForm: View {
         }
     }
 
-    /// Applies a confirmed scan candidate (#345): fills fields only
+    /// Applies a confirmed scan candidate (legacy bolph71656-ai/HTDT-Capture#345): fills fields only
     /// after the operator explicitly picks a suggestion. Serial stays
     /// editable text, never proof.
     private func applyScanCandidate(
@@ -1299,7 +1299,7 @@ public struct AnnotationEntityForm: View {
             // numeric position); an untouched field preserves the
             // original placement verbatim — including raycast/mesh
             // provenance a formatted text round-trip would otherwise
-            // silently downgrade (#245).
+            // silently downgrade (legacy bolph71656-ai/HTDT-Capture#245).
             if placementAuthority == nil {
                 guard let x = Double(xText),
                       let y = Double(yText),
@@ -1349,7 +1349,7 @@ public struct AnnotationEntityForm: View {
                         .uppercased()
                     role = ChannelRole(rawValue: text)
                 }
-                // #315: an unbound speaker is a valid state — Review
+                // legacy bolph71656-ai/HTDT-Capture#315: an unbound speaker is a valid state — Review
                 // surfaces it and missions report the missing role.
                 if type == .subwoofer, role == nil {
                     throw ManualAuthorityBuilderError
@@ -1362,7 +1362,7 @@ public struct AnnotationEntityForm: View {
             var yawDegrees: Float?
             var speakerElevationDegrees: Float?
             var orientationYawDegrees: Float?
-            // Explicit aim removal on edit (#228): clearing the yaw
+            // Explicit aim removal on edit (legacy bolph71656-ai/HTDT-Capture#228): clearing the yaw
             // field drops the original aim; leaving it untouched
             // preserves the recorded axes bit-for-bit.
             let speakerAimRemoved =
@@ -1376,8 +1376,8 @@ public struct AnnotationEntityForm: View {
             {
                 // Editing: an untouched yaw field keeps the original
                 // orientation axes bit-for-bit; only an edited value
-                // rebuilds them (#245). Speaker aim is optional
-                // (#228): an unset azimuth leaves the record
+                // rebuilds them (legacy bolph71656-ai/HTDT-Capture#245). Speaker aim is optional
+                // (legacy bolph71656-ai/HTDT-Capture#228): an unset azimuth leaves the record
                 // aim-unknown; other types may leave it unset too.
                 let entered =
                     yawText.trimmingCharacters(in: .whitespaces)
@@ -1465,7 +1465,7 @@ public struct AnnotationEntityForm: View {
                 referencePointOffset = nil
             }
 
-            // Logical role binding (#315): only when a profile role
+            // Logical role binding (legacy bolph71656-ai/HTDT-Capture#315): only when a profile role
             // is selected; the picker writes it on every change.
             let roleBinding: SpeakerRoleBinding?
             if isSpeakerLike, let layoutProfile,
@@ -1507,7 +1507,7 @@ public struct AnnotationEntityForm: View {
                 evidenceSelection: evidenceSelection
             )
 
-            // Equipment identity record (#239): only emitted when the
+            // Equipment identity record (legacy bolph71656-ai/HTDT-Capture#239): only emitted when the
             // operator explicitly attests the physical match.
             let record: EquipmentIdentityRecord?
             if let equipment, attestedPhysicalMatch {

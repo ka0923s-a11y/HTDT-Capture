@@ -1,4 +1,4 @@
-# lane-g — scan copilot (#272)
+# lane-g — scan copilot (legacy bolph71656-ai/HTDT-Capture#272)
 
 Protocol revision: **v2** (implementation landed; device arm pending)
 
@@ -31,7 +31,7 @@ Metrics (from v1): expected allowed-action agreement; structured-output validity
 
 ## Device-gated status (honest)
 
-- Arms B/C are **unexercised in this repo's CI/dev environments**: Foundation Models is unavailable on Simulator, the iOS-27 device matrix requires iPhone 17 Pro + iOS 27 (#266), and `LanguageModelSession` on device is the only path that produces a real draft. On this Mac's toolchains: SwiftPM builds skip the FM adapter entirely (compiler <6.4); the Xcode-27 RC toolchain compiles it against the iOS 27 SDK.
+- Arms B/C are **unexercised in this repo's CI/dev environments**: Foundation Models is unavailable on Simulator, the iOS-27 device matrix requires iPhone 17 Pro + iOS 27 (legacy bolph71656-ai/HTDT-Capture#266), and `LanguageModelSession` on device is the only path that produces a real draft. On this Mac's toolchains: SwiftPM builds skip the FM adapter entirely (compiler <6.4); the Xcode-27 RC toolchain compiles it against the iOS 27 SDK.
 - Unit-test coverage substitutes a `ScriptedCopilot` fake for the model: validator rejections (movement constrained ×2, finish-not-permitted, unknown action/template/ID/reason/digest, blocking no_action), acceptance of a conforming draft, engine fallback on `modelUnavailable`/rejection, baseline-never-suggests-movement under constraints, and baseline-passes-own-validator across 10 states. The *real* `@Generable` schema negotiation and the 4096-token `contextSizeExceeded` retry are device-only.
 - No evaluation records are fabricated: a run requires a real `LanguageModelSession` environment block (`tools/evaluation/validate_record.py` requires real device fields), so record the model variant/OS/usage provenance from `ScanCopilotResolution.provenance` on-device, plus per-`contextDigest` arm outputs.
 - Suggested on-device matrix: ≥3 scan phases (early/weak coverage, mid-scan tracking-limited, review-ready) × arms A/B × locales en/JA; count C-type rejections by `ScanCopilotValidationViolation` kind; assert zero accepted `move_to_gap`/`rescan_target` under non-`unrestricted` capability and zero accepted `review` outside permitted stages.

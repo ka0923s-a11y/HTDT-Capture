@@ -1,7 +1,7 @@
 import XCTest
 @testable import HTDTCaptureCore
 
-/// #275: bounded high-resolution evidence — the wire contracts that
+/// legacy bolph71656-ai/HTDT-Capture#275: bounded high-resolution evidence — the wire contracts that
 /// survive into the bundle (purpose enum + advisory kind) are pinned
 /// here; the ARKit request surface itself is iOS-only and covered by
 /// the lane-B physical evaluation.

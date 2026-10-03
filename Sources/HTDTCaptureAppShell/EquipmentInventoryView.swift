@@ -2,9 +2,9 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Rack-first equipment inventory workflow (#402): rapid repeated
+/// Rack-first equipment inventory workflow (legacy bolph71656-ai/HTDT-Capture#402): rapid repeated
 /// capture over the existing `SystemInventoryItem` authority — catalog
-/// selection, #345 label-scan assist, rack-slot placement
+/// selection, legacy bolph71656-ai/HTDT-Capture#345 label-scan assist, rack-slot placement
 /// observations, Mission expected-vs-observed linking, and duplicate
 /// warnings. The generic authority editor remains the advanced path;
 /// this surface never asks for manual ID/version/SHA entry or spatial
@@ -32,10 +32,10 @@ struct EquipmentInventoryView: View {
     @State private var linkingItem: HTDTTaskPlanSemanticItem?
     @State private var errorText: String?
 
-    /// Rack + class carried across "save & add next" (#402 §2).
+    /// Rack + class carried across "save & add next" (legacy bolph71656-ai/HTDT-Capture#402 §2).
     @State private var preservedRack: AnnotationEntityID?
     @State private var preservedClass: InventoryEquipmentClass?
-    /// Mission task a freshly saved item should fulfill (#402 §18).
+    /// Mission task a freshly saved item should fulfill (legacy bolph71656-ai/HTDT-Capture#402 §18).
     @State private var pendingMissionItemID: String?
 
     private var rackEntities: [CaptureAnnotationEntity] {
@@ -244,7 +244,7 @@ struct EquipmentInventoryView: View {
         do {
             var next = authorities
             // Rack cleared or moved — stale placements for the item
-            // drop first so the pair never disagrees (#402 §9).
+            // drop first so the pair never disagrees (legacy bolph71656-ai/HTDT-Capture#402 §9).
             for old in authorities.rackPlacements(for: item.itemID) {
                 next = try next.removingRackPlacement(old.placementID)
             }
@@ -254,7 +254,7 @@ struct EquipmentInventoryView: View {
             )
             authorities = next
             // The rack that just saved becomes the next item's
-            // default — repeated rack capture (#402 §2).
+            // default — repeated rack capture (legacy bolph71656-ai/HTDT-Capture#402 §2).
             preservedRack = item.hostRackEntityID ?? preservedRack
             preservedClass = item.equipmentClass
             if let pendingMissionItemID {
@@ -672,7 +672,7 @@ struct EquipmentInventoryView: View {
     }
 }
 
-/// One inventory-item add/edit form (#402 §2/§3/§4): catalog selection
+/// One inventory-item add/edit form (legacy bolph71656-ai/HTDT-Capture#402 §2/§3/§4): catalog selection
 /// over manual tuples, label-scan assist, rack slot/facing fields
 /// producing a `RackPlacementObservation`, duplicate warnings that
 /// never auto-merge, and Save&add/scan-next repetition that preserves
@@ -1065,7 +1065,7 @@ private struct InventoryItemFormSheet: View {
         }
     }
 
-    /// Applies a confirmed scan candidate (#345/#402 §3): the operator
+    /// Applies a confirmed scan candidate (legacy bolph71656-ai/HTDT-Capture#345/legacy bolph71656-ai/HTDT-Capture#402 §3): the operator
     /// explicitly picked it — fields fill from the suggestion and the
     /// source photo joins the placement's evidence.
     private func applyScanCandidate(
@@ -1179,7 +1179,7 @@ private struct InventoryItemFormSheet: View {
     }
 
     /// Clears device-specific identity fields while keeping rack,
-    /// class, and Mission context for the next unit (#402 §2).
+    /// class, and Mission context for the next unit (legacy bolph71656-ai/HTDT-Capture#402 §2).
     private func resetForNext() {
         editingPlacementID = nil
         editingPlacementEvidence = []

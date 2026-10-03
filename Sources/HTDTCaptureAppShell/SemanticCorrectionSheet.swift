@@ -3,7 +3,7 @@ import SwiftUI
 import HTDTCaptureCore
 
 /// Semantic-only correction editor for a finalized capture (issue
-/// #319). The parent bundle's committed records are the starting
+/// legacy bolph71656-ai/HTDT-Capture#319). The parent bundle's committed records are the starting
 /// point; the operator edits metadata only — labels, roles,
 /// verification/attestation states, equipment identity fields,
 /// opening dispositions — never positions or sensor evidence. "Create
@@ -156,7 +156,7 @@ public struct SemanticCorrectionSheet: View {
     /// Rebuilds an entity with edited metadata fields. Spatial
     /// authority (`worldFromAnnotation`, placement, orientation,
     /// uncertainty) is never touched by this sheet — only the
-    /// label/role/verification metadata the issue scopes (#319).
+    /// label/role/verification metadata the issue scopes (legacy bolph71656-ai/HTDT-Capture#319).
     private func applyEntityEdit(
         at index: Int,
         label: String? = nil,

@@ -714,7 +714,7 @@ func reportBuilderProducesSelfContainedBilingualHTML() throws {
     #expect(jaHTML.contains("フィールド調査レポート"))
 }
 
-/// #459: the operator's field notes reach the exported report —
+/// legacy bolph71656-ai/HTDT-Capture#459: the operator's field notes reach the exported report —
 /// they were persisted in the bundle but never rendered before.
 @Test
 func reportBuilderRendersFieldNotes() throws {

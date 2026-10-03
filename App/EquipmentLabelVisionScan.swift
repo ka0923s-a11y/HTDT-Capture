@@ -3,7 +3,7 @@ import Foundation
 import Vision
 import HTDTCaptureCore
 
-/// Label-scan recognizer (#345): runs Vision text recognition and
+/// Label-scan recognizer (legacy bolph71656-ai/HTDT-Capture#345): runs Vision text recognition and
 /// barcode/QR detection on a retained camera pixel buffer and returns
 /// observations for `EquipmentLabelScanMatcher`. Pure assist —
 /// the result only ever produces operator-confirmed suggestions;

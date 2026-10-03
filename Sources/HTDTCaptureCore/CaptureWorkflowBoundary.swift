@@ -1,6 +1,6 @@
 import Foundation
 
-/// Capture workflow composition boundary (issue #410).
+/// Capture workflow composition boundary (issue bolph71656-ai/HTDT-Capture#410).
 ///
 /// The app's single root historically held every capability as one
 /// flat action bag plus every published state. This file declares the
@@ -33,7 +33,7 @@ public enum CaptureWorkflow: String, Sendable, CaseIterable {
     /// and the annotation authority inputs (mesh anchors, RoomPlan
     /// surfaces/objects, field-authority drafts).
     case reviewAuthoring = "review_authoring"
-    /// Field Return (non-spatial, issue #400): the field-return
+    /// Field Return (non-spatial, issue bolph71656-ai/HTDT-Capture#400): the field-return
     /// workspace lifecycle — open/resume, persist draft, finalize,
     /// list documents. Owns the open workspace + document list state.
     case fieldReturn = "field_return"
@@ -97,7 +97,7 @@ public enum CaptureWorkflow: String, Sendable, CaseIterable {
     }
 }
 
-/// The enforced ROOT-10 action-ownership table (issue #410): every
+/// The enforced ROOT-10 action-ownership table (issue bolph71656-ai/HTDT-Capture#410): every
 /// public `CaptureRootActions` member maps to exactly one owning
 /// workflow. The runtime inventory check in AppShell reflects on the
 /// action struct so a newly added unclassified action fails loudly
@@ -232,7 +232,7 @@ public enum CaptureWorkflowActionMap {
     }
 }
 
-// MARK: - Mission launch routing (issue #410)
+// MARK: - Mission launch routing (issue bolph71656-ai/HTDT-Capture#410)
 
 /// Where launching a mission's work package goes. The router is a
 /// pure decision — the App resolves a route into a concrete action
@@ -243,7 +243,7 @@ public enum MissionLaunchRoute: Sendable, Equatable {
     /// Capture with the plan bound.
     case spatialCapture
     /// The plan is entirely non-spatial field work — open the
-    /// field-return workspace (issue #400).
+    /// field-return workspace (issue bolph71656-ai/HTDT-Capture#400).
     case fieldReturn
     /// The mission's capture work is already done (finalized /
     /// delivered / completed / superseded) — open the artifact in
@@ -260,7 +260,7 @@ public enum MissionLaunchRoute: Sendable, Equatable {
     }
 }
 
-/// Why a mission launch refused (issue #410): always explicit —
+/// Why a mission launch refused (issue bolph71656-ai/HTDT-Capture#410): always explicit —
 /// never a silent dead end.
 public enum MissionLaunchUnsupportedReason:
     String, Sendable, Equatable
@@ -296,8 +296,8 @@ public struct MissionLaunchDecision: Sendable, Equatable {
     }
 }
 
-/// Mission → workflow routing (issue #410). Composes the field-task
-/// preflight (#400) — the same spatial/non-spatial classification
+/// Mission → workflow routing (issue bolph71656-ai/HTDT-Capture#410). Composes the field-task
+/// preflight (legacy bolph71656-ai/HTDT-Capture#400) — the same spatial/non-spatial classification
 /// that drives the field-return ledger — so a mission can never be
 /// routed somewhere its plan cannot execute.
 public enum MissionLaunchRouter {
@@ -364,7 +364,7 @@ public enum MissionLaunchRouter {
     }
 }
 
-// MARK: - Workflow handoff records (issue #410)
+// MARK: - Workflow handoff records (issue bolph71656-ai/HTDT-Capture#410)
 
 /// The Spatial Capture → Review transition record: emitted when a
 /// scan ends and Review/authoring begins. Reviewing a capture that
@@ -391,7 +391,7 @@ public struct SpatialCaptureToReviewHandoff: Sendable, Equatable {
 public struct ReviewToFinalizationHandoff: Sendable, Equatable {
     public let captureRevisionID: CaptureRevisionID
     /// True when the sealed revision passed the opening review —
-    /// the gate `#408` authoring surfaces check before mutations.
+    /// the gate `legacy bolph71656-ai/HTDT-Capture#408` authoring surfaces check before mutations.
     public let spatialCaptureSealed: Bool
 
     public init(

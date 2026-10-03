@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bounded per-capture summary of retained Scene Depth evidence (#284).
+/// Bounded per-capture summary of retained Scene Depth evidence (legacy bolph71656-ai/HTDT-Capture#284).
 /// Built incrementally at frame-commit time so the fallback gate and
 /// Review never re-decode depth payloads.
 public struct DepthEvidenceSufficiency: Sendable, Equatable, Codable {
@@ -211,10 +211,10 @@ public enum DepthSufficiencyFailure: String, Sendable, Equatable {
     case confidenceEvidenceMissing = "confidence_evidence_missing"
 }
 
-/// Versioned sufficiency gate for the mesh-fallback path (#284). Nil on
+/// Versioned sufficiency gate for the mesh-fallback path (legacy bolph71656-ai/HTDT-Capture#284). Nil on
 /// a requirements value means legacy `usableDepthSampleCount > 0`
 /// semantics. Thresholds are provisional pending the physical benchmark
-/// program (#9); they exist to stop a single low-quality pixel from
+/// program (legacy bolph71656-ai/HTDT-Capture#9); they exist to stop a single low-quality pixel from
 /// satisfying the fallback, and to keep low-confidence depth from
 /// counting like well-supported depth.
 public struct DepthFallbackSufficiencyPolicy: Sendable, Equatable {

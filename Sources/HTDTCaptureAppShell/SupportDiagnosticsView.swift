@@ -3,18 +3,18 @@ import SwiftUI
 import UniformTypeIdentifiers
 import HTDTCaptureCore
 
-/// Support & Diagnostics center (issue #389): a privacy-reviewed app
+/// Support & Diagnostics center (issue bolph71656-ai/HTDT-Capture#389): a privacy-reviewed app
 /// diagnostic package — device/app/capability/build summary plus
 /// capture-system health — exported as bounded JSON/text. No
 /// telemetry and no capture evidence: the privacy-category preview
 /// shows exactly which sections leave the device before export.
 /// Category labels and summaries are localized in the app layer
-/// (issue #417); the persisted manifest keeps its English text.
+/// (issue bolph71656-ai/HTDT-Capture#417); the persisted manifest keeps its English text.
 struct SupportDiagnosticsView: View {
     let actions: CaptureRootActions
 
     /// Bounded operator-facing error with the technical detail kept
-    /// under a disclosure (issue #417).
+    /// under a disclosure (issue bolph71656-ai/HTDT-Capture#417).
     private struct StatusNotice {
         let message: String
         let detail: String
@@ -247,7 +247,7 @@ struct SupportDiagnosticsView: View {
 }
 
 /// Localized labels for diagnostics privacy categories (issue
-/// #417): the enum's raw tokens and English manifest summaries
+/// legacy bolph71656-ai/HTDT-Capture#417): the enum's raw tokens and English manifest summaries
 /// stay in Core — every operator-facing name maps here.
 enum DiagnosticsPresentation {
     static func categoryName(
@@ -301,7 +301,7 @@ enum DiagnosticsPresentation {
 }
 
 #if os(iOS)
-/// System share sheet for the exported diagnostics files (#389):
+/// System share sheet for the exported diagnostics files (legacy bolph71656-ai/HTDT-Capture#389):
 /// the operator's explicit share action is the only export channel.
 struct DiagnosticsShareSheet:
     UIViewControllerRepresentable

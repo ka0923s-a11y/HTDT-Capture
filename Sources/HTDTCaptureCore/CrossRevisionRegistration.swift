@@ -1,7 +1,7 @@
 import Foundation
 
 /// Identity for an accepted cross-revision spatial registration
-/// (issue #395). A distinct identity space from capture identifiers —
+/// (issue bolph71656-ai/HTDT-Capture#395). A distinct identity space from capture identifiers —
 /// registrations are app-local authority records, not captures.
 public struct CrossRevisionRegistrationID: CaptureIdentifier {
     public let rawValue: UUID
@@ -9,7 +9,7 @@ public struct CrossRevisionRegistrationID: CaptureIdentifier {
 }
 
 /// How a correspondence pair was physically established between two
-/// finalized capture coordinate spaces (issue #395).
+/// finalized capture coordinate spaces (issue bolph71656-ai/HTDT-Capture#395).
 public enum CrossRevisionCorrespondenceKind:
     String,
     Codable,
@@ -27,7 +27,7 @@ public enum CrossRevisionCorrespondenceKind:
 }
 
 /// Whether a registration may estimate a uniform scale correction
-/// (issue #395). The default is rigid: scale changes stay forbidden
+/// (issue bolph71656-ai/HTDT-Capture#395). The default is rigid: scale changes stay forbidden
 /// unless the operator explicitly declares the policy up front.
 public enum CrossRevisionScalePolicy:
     String,
@@ -45,7 +45,7 @@ public enum CrossRevisionScalePolicy:
 /// One physical correspondence attested between two capture spaces:
 /// the same physical point observed at `sourcePosition` in the source
 /// revision's coordinate space and at `targetPosition` in the target's
-/// (issue #395). `ref` names the physical referent — a
+/// (issue bolph71656-ai/HTDT-Capture#395). `ref` names the physical referent — a
 /// `reference_target:<id>` token, a manual-point label, or a
 /// `field_datum:<element>` token — so the pairing is inspectable
 /// rather than an anonymous index.
@@ -159,7 +159,7 @@ public enum CrossRevisionRegistrationError:
 /// Solver output for a proposed registration — everything the operator
 /// needs to inspect before accepting: the transform, the scale factor
 /// actually fitted, per-correspondence residuals, and RMS/max
-/// aggregates (issue #395).
+/// aggregates (issue bolph71656-ai/HTDT-Capture#395).
 public struct CrossRevisionRegistrationSolve:
     Sendable,
     Equatable
@@ -184,7 +184,7 @@ public struct CrossRevisionRegistrationSolve:
 }
 
 /// Least-squares absolute-orientation solver for cross-revision
-/// registration (issue #395). Rigid by default: Horn's unit-
+/// registration (issue bolph71656-ai/HTDT-Capture#395). Rigid by default: Horn's unit-
 /// quaternion closed form on double-precision points — no
 /// dependencies, deterministic. Uniform scale is fitted only when
 /// `uniformScalePermitted` was explicitly requested; the fitted
@@ -602,7 +602,7 @@ private extension WorldPoint3D {
 
 /// An accepted cross-revision registration — the explicit, inspectable
 /// transform authority between two independent finalized capture
-/// coordinate spaces (issue #395). Immutable once accepted: the store
+/// coordinate spaces (issue bolph71656-ai/HTDT-Capture#395). Immutable once accepted: the store
 /// appends only, and a second registration for the same directed pair
 /// is refused. It never rewrites either revision's bytes — both stay
 /// immutable; the transform is supplemental authority carried beside
@@ -785,7 +785,7 @@ public struct CrossRevisionRegistrationRegistryDocument:
     }
 }
 
-/// The app-local registration authority (issue #395). `propose` runs
+/// The app-local registration authority (issue bolph71656-ai/HTDT-Capture#395). `propose` runs
 /// the solver and returns the inspectable fit without persisting;
 /// `accept` commits it immutably. Acceptance is the only write —
 /// nothing updates or deletes a registration.
@@ -950,7 +950,7 @@ public struct CrossRevisionRegistrationStore: Sendable {
 }
 
 /// Canonical supplemental-authority payload listing the accepted
-/// registrations that bind a revision (issue #395), committed at
+/// registrations that bind a revision (issue bolph71656-ai/HTDT-Capture#395), committed at
 /// `revision/registrations.json` inside a revision's bundle. The
 /// payload is additive authority: it never rewrites coordinate truth
 /// inside the revision it travels with, and HTDT consumes it as an
@@ -1056,7 +1056,7 @@ public enum CrossRevisionRegistrationPackageBuilder {
 }
 
 /// How a path between two capture coordinate spaces resolves through
-/// the accepted-registration graph (issue #395). A direct edge carries
+/// the accepted-registration graph (issue bolph71656-ai/HTDT-Capture#395). A direct edge carries
 /// its own uncertainty; a chained path composes transforms and
 /// accumulates uncertainty in quadrature — the graph never pretends a
 /// multi-hop alignment is as confident as a direct one.
@@ -1200,7 +1200,7 @@ public struct CrossRevisionScaledTransform:
     }
 }
 
-/// The accepted-registration graph across revisions (issue #395):
+/// The accepted-registration graph across revisions (issue bolph71656-ai/HTDT-Capture#395):
 /// directed edges source → target, traversable in either direction
 /// (inverse applied with `1/s` and the rigid inverse). Path
 /// resolution is deterministic — BFS by hop count with ties broken
@@ -1320,7 +1320,7 @@ public struct CrossRevisionRegistrationGraph: Sendable, Equatable {
 }
 
 /// Gather helpers that build attested correspondence pairs from
-/// bundle evidence (issue #395). Every helper pairs positions whose
+/// bundle evidence (issue bolph71656-ai/HTDT-Capture#395). Every helper pairs positions whose
 /// physical referent is the same on both sides — a mismatched or
 /// un-attested pairing is never emitted.
 public enum CrossRevisionCorrespondenceGather {

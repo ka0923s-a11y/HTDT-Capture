@@ -7,9 +7,9 @@ import RoomPlan
 
 /// Derives the review-workspace projections from the committed
 /// processed RoomPlan payload (`roomplan/captured-room.json`):
-/// door/window/opening candidates for the opening review (#231) and a
+/// door/window/opening candidates for the opening review (legacy bolph71656-ai/HTDT-Capture#231) and a
 /// platform-independent top-down plan model for the visual review
-/// workspace (#213). Everything here is a pure derivation over already
+/// workspace (legacy bolph71656-ai/HTDT-Capture#213). Everything here is a pure derivation over already
 /// committed bytes — nothing mutates capture authority.
 /// RoomPlan exposes openings/surfaces and objects as unrelated structs;
 /// the deriver only needs their spatial identity, so both conform to
@@ -44,7 +44,7 @@ public enum RoomPlanReviewDeriver {
     }
 
     /// Enumerates the openings RoomPlan inferred as review candidates
-    /// (issue #231). `source_ref` joins each candidate back to the
+    /// (issue bolph71656-ai/HTDT-Capture#231). `source_ref` joins each candidate back to the
     /// originating RoomPlan object identity, so repeated enumeration is
     /// stable and merging preserves operator dispositions.
     public static func enumerateOpenings(
@@ -103,7 +103,7 @@ public enum RoomPlanReviewDeriver {
 
     /// The elevation (capture-space Y, meters) of the largest
     /// detected floor surface in the processed payload, or nil when
-    /// no floor exists (issue #232 field datum). This is the only
+    /// no floor exists (issue bolph71656-ai/HTDT-Capture#232 field datum). This is the only
     /// ground-truth floor level a RoomPlan payload carries.
     public static func finishedFloorElevationMeters(
         processedPayload: Data
@@ -121,7 +121,7 @@ public enum RoomPlanReviewDeriver {
         return Double(floor.transform.columns.3.y)
     }
 
-    /// Builds the top-down plan model (issue #213): walls as segments,
+    /// Builds the top-down plan model (issue bolph71656-ai/HTDT-Capture#213): walls as segments,
     /// openings and objects as markers, all projected onto the XZ
     /// floor plane in the capture's bound coordinate space.
     public static func planPreview(
@@ -198,7 +198,7 @@ public enum RoomPlanReviewDeriver {
                         label: label(object),
                         // Same lineage token `enumerateOpenings`
                         // stamps as the candidate's `source_ref`
-                        // (issue #367): a reviewed opening replaces
+                        // (issue bolph71656-ai/HTDT-Capture#367): a reviewed opening replaces
                         // this raw marker on the review surface.
                         identifier:
                             "roomplan:\(sourceToken):"

@@ -200,7 +200,7 @@ public struct CapturedRoomContentSummary: Codable, Sendable, Equatable {
 /// `roomplan/captured-room-metadata.json`. It binds the raw and processed
 /// RoomPlan artifacts to the exact capture-session/coordinate authority
 /// and runtime provenance that the in-memory descriptors carried while
-/// the working set was live (issue #152).
+/// the working set was live (issue bolph71656-ai/HTDT-Capture#152).
 public struct CapturedRoomMetadataDocument: Codable, Sendable, Equatable {
     public let schema: String
     public let schemaVersion: String

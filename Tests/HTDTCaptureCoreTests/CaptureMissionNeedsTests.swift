@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #364 §4: "This capture needs" — mission intent itemized in
+// legacy bolph71656-ai/HTDT-Capture#364 §4: "This capture needs" — mission intent itemized in
 // operator vocabulary: counts and optional flags, never raw schema
 // identifiers.
 
@@ -60,12 +60,12 @@ func layoutProfileResolvesRoleNamesThroughVocabulary() {
         SpeakerLayoutProfiles.stereo
     )
     let needs = CaptureMissionNeeds.needs(for: profile)
-    // Built-in role IDs resolve to their display names (#315).
+    // Built-in role IDs resolve to their display names (legacy bolph71656-ai/HTDT-Capture#315).
     #expect(needs.contains { $0.title == "Speaker — Front left" })
     #expect(needs.contains { $0.title == "Speaker — Front right" })
 }
 
-// #426: the "Theater layout" preset derives its requirements from a
+// legacy bolph71656-ai/HTDT-Capture#426: the "Theater layout" preset derives its requirements from a
 // `SpeakerLayoutProfile` vocabulary, so every `speaker_role_<roleID>`
 // identifier names a role ID the `role_binding` picker can select —
 // setup and the annotation workspace share the one token set.

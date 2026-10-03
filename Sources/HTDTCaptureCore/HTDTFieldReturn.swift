@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// Contribution identity of a non-spatial field return (issue #400).
+/// Contribution identity of a non-spatial field return (issue bolph71656-ai/HTDT-Capture#400).
 /// A contribution is *not* a capture revision — it carries no
 /// coordinate space, no session timing, and no RoomPlan payload —
 /// but it is the artifact HTDT receives when a mission's inventory,
@@ -33,33 +33,33 @@ public enum HTDTFieldReturnError: Error, Sendable, Equatable {
     case destinationAlreadyExists
     /// `fulfilled` (or a claim of partial fulfillment) recorded
     /// without any fulfillment ref — an outcome is only a claim until
-    /// an exact authority/evidence ref backs it (issue #418).
+    /// an exact authority/evidence ref backs it (issue bolph71656-ai/HTDT-Capture#418).
     case missingFulfillmentBasis(String)
     /// `declined`/`notApplicable` recorded without an operator or
-    /// preflight reason (issue #418).
+    /// preflight reason (issue bolph71656-ai/HTDT-Capture#418).
     case missingOutcomeReason(String)
     /// A fulfillment ref is grammar-valid but names no record this
     /// contribution contains, and is not an explicitly permitted
-    /// external reference (issue #418).
+    /// external reference (issue bolph71656-ai/HTDT-Capture#418).
     case unresolvedFulfillmentRef(String)
     /// A fulfillment ref resolves but its record type is not
-    /// compatible with the task kind (issue #418).
+    /// compatible with the task kind (issue bolph71656-ai/HTDT-Capture#418).
     case incompatibleFulfillmentRef(String)
     /// An embedded authority document's `contribution_ref` disagrees
-    /// with the root document's (issue #419).
+    /// with the root document's (issue bolph71656-ai/HTDT-Capture#419).
     case conflictingContributionRef(String)
     /// An embedded document's schema does not match this container's
-    /// binding-scope generation (issue #419).
+    /// binding-scope generation (issue bolph71656-ai/HTDT-Capture#419).
     case incompatibleAuthoritySchema(String)
     /// A record carries a second owner binding inside a doc-level
-    /// contribution envelope (issue #419).
+    /// contribution envelope (issue bolph71656-ai/HTDT-Capture#419).
     case dualOwnerRecord(String)
     /// The embedded doc's declared schema is not a field-authority
     /// family this container can carry.
     case unknownAuthoritySchema(String)
 }
 
-/// A mission contribution (issue #400/#397): either a spatial capture
+/// A mission contribution (issue bolph71656-ai/HTDT-Capture#400/legacy bolph71656-ai/HTDT-Capture#397): either a spatial capture
 /// revision or a non-spatial field return. Aggregate mission
 /// fulfillment evaluates the *set* — a mission delivered by photos and
 /// settings alone produces a `.fieldReturn` contribution alongside or
@@ -142,7 +142,7 @@ public enum HTDTMissionContribution:
     }
 }
 
-/// What a plan item needs the device to provide (issue #400). The
+/// What a plan item needs the device to provide (issue bolph71656-ai/HTDT-Capture#400). The
 /// evaluator derives it from the item's type/kind — it is never
 /// declared by the plan issuer and never overrides the document.
 public enum HTDTTaskSpatialRequirement: String, Sendable, Equatable {
@@ -154,7 +154,7 @@ public enum HTDTTaskSpatialRequirement: String, Sendable, Equatable {
 }
 
 extension SemanticTaskKind {
-    /// Spatial requirement of one semantic task kind (issue #400).
+    /// Spatial requirement of one semantic task kind (issue bolph71656-ai/HTDT-Capture#400).
     /// Kinds whose authority records bind room geometry — surfaces,
     /// furniture/screens/seats, spatial alignments, room-state
     /// snapshots — are spatial; inventory, routing, commissioning and
@@ -181,7 +181,7 @@ extension SemanticTaskKind {
     }
 }
 
-/// The field-authoring kind of one plan task (issue #418): which
+/// The field-authoring kind of one plan task (issue bolph71656-ai/HTDT-Capture#418): which
 /// typed authoring workflow — and therefore which authority record
 /// families — a plan item maps to. The evaluator derives it from the
 /// item's type/kind; the ledger copies it so fulfillment-type
@@ -264,7 +264,7 @@ public enum HTDTFieldTaskKind:
     /// Whether this kind requires at least one contribution-local
     /// typed authority record for `fulfilled` — generic note/file
     /// evidence is not a substitute when the mission explicitly asks
-    /// for typed inventory/settings/wiring data (issue #418 §11).
+    /// for typed inventory/settings/wiring data (issue bolph71656-ai/HTDT-Capture#418 §11).
     public var requiresTypedFulfillment: Bool {
         switch self {
         case .inventoryItem:
@@ -299,7 +299,7 @@ public enum HTDTFieldTaskKind:
 }
 
 extension HTDTTaskPlanSemanticItem {
-    /// The field-authoring kind a semantic task maps to (issue #418).
+    /// The field-authoring kind a semantic task maps to (issue bolph71656-ai/HTDT-Capture#418).
     public var fieldTaskKind: HTDTFieldTaskKind {
         switch semanticKind {
         case .inventoryItem: return .inventoryItem
@@ -311,7 +311,7 @@ extension HTDTTaskPlanSemanticItem {
     }
 }
 
-/// One task-preflight row (issue #400): every plan item gets an
+/// One task-preflight row (issue bolph71656-ai/HTDT-Capture#400): every plan item gets an
 /// enabled/disabled verdict plus the human-readable reason when the
 /// device's capabilities leave it unworkable. The row never hides the
 /// task — a disabled spatial task is shown with its reason.
@@ -321,7 +321,7 @@ public struct HTDTFieldTaskPreflight: Sendable, Equatable, Identifiable {
     public let title: String
     public let requirement: TaskPlanRequirement
     public let spatialRequirement: HTDTTaskSpatialRequirement
-    /// Which typed authoring workflow the task maps to (issue #418).
+    /// Which typed authoring workflow the task maps to (issue bolph71656-ai/HTDT-Capture#418).
     public let taskKind: HTDTFieldTaskKind
     public let enabled: Bool
     /// Human-readable reason when `enabled == false`; nil otherwise.
@@ -348,7 +348,7 @@ public struct HTDTFieldTaskPreflight: Sendable, Equatable, Identifiable {
     public var id: String { itemRef }
 }
 
-/// Per-task capability preflight (issue #400): classifies a mission's
+/// Per-task capability preflight (issue bolph71656-ai/HTDT-Capture#400): classifies a mission's
 /// imported plan items against the device's spatial capability so a
 /// non-spatial device still runs inventory/photo/settings/wiring work
 /// while spatial tasks surface a precise disabled reason.
@@ -406,7 +406,7 @@ public enum HTDTFieldTaskPreflightEvaluator {
                     requirement: item.requirement,
                     // The plan's typed acquisition requirement —
                     // never inferred from `quantityType`/endpoint
-                    // strings (issue #418). Plans without the field
+                    // strings (issue bolph71656-ai/HTDT-Capture#418). Plans without the field
                     // fail conservatively as spatial.
                     spatial: (
                         item.acquisitionRequirement
@@ -455,7 +455,7 @@ public enum HTDTFieldTaskPreflightEvaluator {
 }
 
 /// One row of the field return's task fulfillment ledger (issue
-/// #400): the plan item, its operator-marked outcome, and the
+/// legacy bolph71656-ai/HTDT-Capture#400): the plan item, its operator-marked outcome, and the
 /// authority refs that fulfill it.
 public struct HTDTFieldReturnTaskLedgerEntry:
     Codable, Sendable, Equatable
@@ -474,13 +474,13 @@ public struct HTDTFieldReturnTaskLedgerEntry:
     public let itemRef: String
     public let title: String
     public let requirement: TaskPlanRequirement
-    /// Which typed authoring workflow the item maps to (issue #418).
+    /// Which typed authoring workflow the item maps to (issue bolph71656-ai/HTDT-Capture#418).
     /// nil on ledger rows written before the field existed — those
     /// evaluate through `.otherSemantic`'s permissive namespace set.
     public let taskKind: HTDTFieldTaskKind?
     /// Ref namespaces whose records may fulfill this item, captured
     /// from the kind at seed time so the validator need not re-derive
-    /// it (issue #418). nil on legacy rows — interpreted through
+    /// it (issue bolph71656-ai/HTDT-Capture#418). nil on legacy rows — interpreted through
     /// `taskKind`.
     public let fulfillmentNamespaces: Set<String>?
     public var outcome: Outcome
@@ -499,7 +499,7 @@ public struct HTDTFieldReturnTaskLedgerEntry:
     }
 
     /// Whether `fulfilled` requires a contribution-local typed
-    /// record (issue #418 §11).
+    /// record (issue bolph71656-ai/HTDT-Capture#418 §11).
     public var requiresTypedFulfillment: Bool {
         (taskKind ?? .otherSemantic).requiresTypedFulfillment
     }
@@ -588,7 +588,7 @@ public struct HTDTFieldReturnTaskLedgerEntry:
     }
 }
 
-/// Provenance block of a field return (issue #400): who produced it —
+/// Provenance block of a field return (issue bolph71656-ai/HTDT-Capture#400): who produced it —
 /// never a device serial or account identity.
 public struct HTDTFieldReturnProvenance:
     Codable, Sendable, Equatable
@@ -642,8 +642,8 @@ public struct HTDTFieldReturnDocumentRef:
 }
 
 /// The root document inside a `.htdtfieldreturn` container (issue
-/// #400): the versioned `htdt.field_return` contract. Schema
-/// version 2.0.0 (issue #419) binds every embedded typed authority
+/// legacy bolph71656-ai/HTDT-Capture#400): the versioned `htdt.field_return` contract. Schema
+/// version 2.0.0 (issue bolph71656-ai/HTDT-Capture#419) binds every embedded typed authority
 /// document through an explicit `contribution_ref` envelope —
 /// documents no longer stuff the contribution id into a
 /// `capture_revision_id` slot. Version 1.0.0 documents declared
@@ -675,12 +675,12 @@ public struct HTDTFieldReturnDocument:
     public let authorityBindingScope: String
     public let contributionID: HTDTFieldReturnID
     /// The typed owner binding of every embedded authority document
-    /// (issue #419). v1 documents have no `contribution_ref` field —
+    /// (issue bolph71656-ai/HTDT-Capture#419). v1 documents have no `contribution_ref` field —
     /// decoding synthesizes `.fieldReturn(contributionID)` under the
     /// declared `contribution_id` scope.
     public let contributionRef: HTDTMissionContribution
     /// The finalized contribution this return supersedes, when it is
-    /// a follow-up/correction (issue #418 refinement) — lineage
+    /// a follow-up/correction (issue bolph71656-ai/HTDT-Capture#418 refinement) — lineage
     /// only; the superseded artifact's bytes stay immutable.
     public let supersedesContributionRef: HTDTMissionContribution?
     /// Mission identity the return was issued under, when bound.
@@ -701,7 +701,7 @@ public struct HTDTFieldReturnDocument:
     public let authorityDocuments: [HTDTFieldReturnDocumentRef]
     /// `evidence/**` binary payloads inside the container.
     public let evidenceAssets: [HTDTFieldReturnDocumentRef]
-    /// Semantic root-document digest (issue #419): v2 is a SHA-256
+    /// Semantic root-document digest (issue bolph71656-ai/HTDT-Capture#419): v2 is a SHA-256
     /// over the canonical encoding of this document minus the
     /// `content_digest` field itself — no hand-maintained field list
     /// can silently omit a new field. v1 artifacts keep their
@@ -889,7 +889,7 @@ public struct HTDTFieldReturnDocument:
     }
 }
 
-/// The assembled field return (issue #400): the root document plus
+/// The assembled field return (issue bolph71656-ai/HTDT-Capture#400): the root document plus
 /// every container entry (path → bytes) in canonical order. The
 /// archive writer streams these entries; nothing else interprets
 /// them.
@@ -917,7 +917,7 @@ public struct HTDTFieldReturnArtifact: Sendable, Equatable {
     }
 }
 
-/// The staged, editable field-return workspace (issue #400): the
+/// The staged, editable field-return workspace (issue bolph71656-ai/HTDT-Capture#400): the
 /// non-spatial equivalent of the capture working set. It reuses
 /// `FieldAuthorityWorkspace` for the typed authority content — the
 /// records there bind the contribution id in their
@@ -935,19 +935,19 @@ public struct HTDTFieldReturnWorkspace:
     public var planID: String?
     public var planVersion: String?
     public var planSHA256: String?
-    /// Sibling capture revisions for aggregate fulfillment (#397).
+    /// Sibling capture revisions for aggregate fulfillment (legacy bolph71656-ai/HTDT-Capture#397).
     public var relatedCaptureRevisionIDs: [CaptureRevisionID]
     /// The finalized contribution this workspace supersedes — set
     /// when the operator starts a follow-up/correction against an
-    /// already-finalized return (issue #418 refinement).
+    /// already-finalized return (issue bolph71656-ai/HTDT-Capture#418 refinement).
     public var supersedesContributionID: HTDTFieldReturnID?
     public var authority: FieldAuthorityWorkspace
-    /// Inventory identity authored in this return (issue #418):
+    /// Inventory identity authored in this return (issue bolph71656-ai/HTDT-Capture#418):
     /// canonical `SystemInventoryItem` records — never freeform
     /// field-evidence titles.
     public var inventoryItems: [SystemInventoryItem]
     /// Bounded room-state observations authored without spatial
-    /// scene authority (issue #418).
+    /// scene authority (issue bolph71656-ai/HTDT-Capture#418).
     public var roomStateObservations: [RoomStateObservation]
     public var taskLedger: [HTDTFieldReturnTaskLedgerEntry]
     public var createdAtUTC: String
@@ -989,7 +989,7 @@ public struct HTDTFieldReturnWorkspace:
 
     public var isFinalized: Bool { finalizedAtUTC != nil }
 
-    /// The typed owner of this contribution (issue #419) — a field
+    /// The typed owner of this contribution (issue bolph71656-ai/HTDT-Capture#419) — a field
     /// return, never a capture revision.
     public var contributionRef: HTDTMissionContribution {
         .fieldReturn(contributionID)
@@ -1001,7 +1001,7 @@ public struct HTDTFieldReturnWorkspace:
     /// in their `capture_revision_id` slot while the record lives in
     /// memory. It is a record-carrier only — no capture revision
     /// exists. The container emits `contribution_ref` envelopes and
-    /// strips this slot on the wire (issue #419); the value never
+    /// strips this slot on the wire (issue bolph71656-ai/HTDT-Capture#419); the value never
     /// escapes into domain APIs or persisted v2 documents.
     public var recordCarrierID: CaptureRevisionID {
         CaptureRevisionID(rawValue: contributionID.rawValue)
@@ -1011,7 +1011,7 @@ public struct HTDTFieldReturnWorkspace:
     /// plan item, `unfulfilled`/`notApplicable` defaulting by whether
     /// the item is enabled on this device. Disabled rows carry the
     /// preflight reason as their outcome note so `notApplicable`
-    /// always has a basis (issue #418).
+    /// always has a basis (issue bolph71656-ai/HTDT-Capture#418).
     public mutating func seedTaskLedger(
         preflight: [HTDTFieldTaskPreflight]
     ) throws {
@@ -1033,7 +1033,7 @@ public struct HTDTFieldReturnWorkspace:
         }
     }
 
-    /// Validates outcome semantics (issue #418) without touching the
+    /// Validates outcome semantics (issue bolph71656-ai/HTDT-Capture#418) without touching the
     /// workspace — shared by `recordTaskOutcome` and the finalize
     /// validator.
     static func checkOutcomeSemantics(
@@ -1082,7 +1082,7 @@ public struct HTDTFieldReturnWorkspace:
     }
 
     /// Records a task outcome plus the authority refs that fulfill
-    /// it. Outcome semantics (issue #418): `fulfilled` requires a
+    /// it. Outcome semantics (issue bolph71656-ai/HTDT-Capture#418): `fulfilled` requires a
     /// resolvable basis ref, `partiallyFulfilled` a ref or a reason,
     /// `declined`/`notApplicable` a reason; every ref must be
     /// grammar-valid and type-compatible with the task kind.
@@ -1204,13 +1204,13 @@ public struct HTDTFieldReturnWorkspace:
     }
 }
 
-/// Builds the immutable `.htdtfieldreturn` artifact (issue #400) from
+/// Builds the immutable `.htdtfieldreturn` artifact (issue bolph71656-ai/HTDT-Capture#400) from
 /// a finalized workspace: typed authority docs under `authority/`,
 /// staged evidence assets under `evidence/`, the root
 /// `field-return.json`, then the container manifest. The builder
 /// performs every validation the typed documents enforce — records
 /// bound to another contribution id are rejected, not rebound.
-/// Issue #418/#419: the finalize path runs the fulfillment-ledger
+/// Issue bolph71656-ai/HTDT-Capture#418/legacy bolph71656-ai/HTDT-Capture#419: the finalize path runs the fulfillment-ledger
 /// validator first, then emits `htdt.field_return.*`
 /// contribution-ref envelopes so no synthetic CaptureRevisionID
 /// reaches the wire.
@@ -1372,7 +1372,7 @@ public enum HTDTFieldReturnAssembler {
             )
         }
 
-        // v2 semantic digest (issue #419 refinement): SHA-256 over
+        // v2 semantic digest (issue bolph71656-ai/HTDT-Capture#419 refinement): SHA-256 over
         // the canonical encoding of the root document with its own
         // `content_digest` field removed — every other root field
         // (planVersion, provenance, ledger notes, related revision
@@ -1452,7 +1452,7 @@ public enum HTDTFieldReturnAssembler {
     }
 }
 
-/// The field return's digest contract (issue #419 refinement). Two
+/// The field return's digest contract (issue bolph71656-ai/HTDT-Capture#419 refinement). Two
 /// algorithms exist and each artifact names its own:
 ///
 /// - **v2 semantic digest** — SHA-256 over the canonical encoding of
@@ -1557,7 +1557,7 @@ public enum HTDTFieldReturnDigest {
     }
 }
 
-/// The finalize/read-side contract of a field return (issue #418):
+/// The finalize/read-side contract of a field return (issue bolph71656-ai/HTDT-Capture#418):
 /// task outcomes must carry their required basis, every fulfillment
 /// ref must be grammar-valid, type-compatible with the task kind and
 /// resolvable to an exact record of this contribution (or an
@@ -1574,7 +1574,7 @@ public enum HTDTFieldReturnValidator {
     ]
 
     /// Validates one ledger entry's outcome semantics and ref
-    /// compatibility (issue #418). Used by `recordTaskOutcome` for
+    /// compatibility (issue bolph71656-ai/HTDT-Capture#418). Used by `recordTaskOutcome` for
     /// edit-time checks and again at finalize so a draft authored
     /// under an older build still fails honestly.
     public static func validate(
@@ -1685,7 +1685,7 @@ public enum HTDTFieldReturnValidator {
         }
     }
 
-    /// Read-side validation of an opened artifact (issue #419):
+    /// Read-side validation of an opened artifact (issue bolph71656-ai/HTDT-Capture#419):
     /// every embedded `authority/*.json` document is checked against
     /// the binding scope the root declares —
     ///
@@ -1789,7 +1789,7 @@ public enum HTDTFieldReturnValidator {
     }
 }
 
-/// Writes the `.htdtfieldreturn` container (issue #400): a stored
+/// Writes the `.htdtfieldreturn` container (issue bolph71656-ai/HTDT-Capture#400): a stored
 /// (uncompressed) classic ZIP carrying the artifact's entries plus a
 /// `container-manifest.json` integrity index — same deterministic
 /// bytes strategy as `.htdtcapture`, a different container family so
@@ -2019,7 +2019,7 @@ public enum HTDTFieldReturnArchiveWriter {
     }
 }
 
-/// Reads a `.htdtfieldreturn` container (issue #400): stored-entry
+/// Reads a `.htdtfieldreturn` container (issue bolph71656-ai/HTDT-Capture#400): stored-entry
 /// extraction plus manifest verification — a corrupt archive reports
 /// the mismatching path, never half-decodes.
 public enum HTDTFieldReturnArchiveReader {
@@ -2101,7 +2101,7 @@ public enum HTDTFieldReturnArchiveReader {
                 )
             }
             .sorted { $0.path < $1.path }
-        // Contribution-binding validation (issue #419): embedded
+        // Contribution-binding validation (issue bolph71656-ai/HTDT-Capture#419): embedded
         // authority docs must agree with the root's declared binding
         // scope — v1 `capture_revision_id` carriers and v2
         // `contribution_ref` envelopes are each checked on their own
@@ -2190,7 +2190,7 @@ struct StoredZIPReader {
     }
 }
 
-/// The field-return index (issue #400): app-private JSON at
+/// The field-return index (issue bolph71656-ai/HTDT-Capture#400): app-private JSON at
 /// `<captureRoot>/field-returns.json` holding the staged workspaces
 /// and finalized digests. Same shape as `mission-inbox.json` — one
 /// bounded document, atomic rewrite.
@@ -2263,7 +2263,7 @@ public struct HTDTFieldReturnStore: Sendable {
 
 extension HTDTMissionRecord {
     /// Aggregate contribution set for fulfillment evaluation (issue
-    /// #400/#397): every associated capture revision plus every
+    /// legacy bolph71656-ai/HTDT-Capture#400/legacy bolph71656-ai/HTDT-Capture#397): every associated capture revision plus every
     /// attached field return.
     public var contributions: [HTDTMissionContribution] {
         associatedCaptureRevisionIDs.compactMap { idText in

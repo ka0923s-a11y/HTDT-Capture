@@ -1,7 +1,7 @@
 import Foundation
 import HTDTCaptureCore
 
-/// A human-presentable binding choice for a field note (issue #420):
+/// A human-presentable binding choice for a field note (issue bolph71656-ai/HTDT-Capture#420):
 /// the operator binds a note to a *subject* — "Front Left speaker",
 /// "2.4 m — length" — while the exact authority ref stays available
 /// under Details. Labels are derived only from committed record
@@ -77,7 +77,7 @@ public struct FieldNoteBindingCandidate:
 
 /// Maps committed authority records onto binding candidates, and
 /// resolves arbitrary refs back to human labels on every surface that
-/// renders them (issue #420 — the shared human authority-ref
+/// renders them (issue bolph71656-ai/HTDT-Capture#420 — the shared human authority-ref
 /// resolver).
 public enum FieldNoteBindingResolver {
     /// Human label pieces for one candidate kind — used both by the
@@ -255,7 +255,7 @@ public enum FieldNoteBindingResolver {
         return out
     }
 
-    /// Candidates for the field-return workspace (issue #418): the
+    /// Candidates for the field-return workspace (issue bolph71656-ai/HTDT-Capture#418): the
     /// non-spatial collections a task row's fulfillment refs point
     /// at — inventory units and room-state observations included.
     public static func fieldReturnCandidates(
@@ -345,7 +345,7 @@ public enum FieldNoteBindingResolver {
 
     /// Resolves a ref to its human label using the committed
     /// records; falls back to a localized type name plus a short
-    /// diagnostic tag (issue #420 — never an invented label, never a
+    /// diagnostic tag (issue bolph71656-ai/HTDT-Capture#420 — never an invented label, never a
     /// raw UUID).
     public static func resolve(
         ref: String,
@@ -473,7 +473,7 @@ public enum FieldNoteBindingResolver {
         }
     }
 
-    /// Localized anchor indicator (issue #421): subject-point
+    /// Localized anchor indicator (issue bolph71656-ai/HTDT-Capture#421): subject-point
     /// anchors render as "Location captured"; viewpoint anchors
     /// render as the recording stance — never as a subject location.
     public static func anchorName(

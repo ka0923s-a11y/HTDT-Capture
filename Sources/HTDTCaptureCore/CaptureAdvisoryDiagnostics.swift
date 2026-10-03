@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bounded record of RoomPlan coaching/instruction transitions (#260).
+/// Bounded record of RoomPlan coaching/instruction transitions (legacy bolph71656-ai/HTDT-Capture#260).
 /// Only transitions are retained — repeated identical instructions merge
 /// into one transition with a count, so per-frame coaching cannot grow
 /// the history.
@@ -134,7 +134,7 @@ public struct RoomPlanGuidanceHistory: Sendable, Equatable, Codable {
     }
 }
 
-/// Mesh anchor lifecycle diagnostics (#268). Events are bounded: at most
+/// Mesh anchor lifecycle diagnostics (legacy bolph71656-ai/HTDT-Capture#268). Events are bounded: at most
 /// `uniqueAnchorLimit` distinct anchors and `eventLimit` total events are
 /// retained; beyond that only aggregate counters advance so the summary
 /// stays deterministic.
@@ -300,7 +300,7 @@ public struct MeshAnchorLifecycleSummary: Sendable, Equatable, Codable {
 }
 
 /// The advisory coverage/guidance context captured at the accepted End
-/// boundary (#223). Built from the ephemeral trackers right before the
+/// boundary (legacy bolph71656-ai/HTDT-Capture#223). Built from the ephemeral trackers right before the
 /// RoomPlan session stops so the finalized bundle retains what the HUD
 /// showed.
 public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
@@ -331,7 +331,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
     public let actionableWeakRegionCount: Int
     public let saturatedWeakRegionCount: Int
     public let guidanceComplete: Bool
-    // #329 additive 3D-coverage fields — all optional so payloads
+    // legacy bolph71656-ai/HTDT-Capture#329 additive 3D-coverage fields — all optional so payloads
     // written before the vertical layer existed remain
     // backward-readable (their absence means azimuth-only 2D
     // semantics).
@@ -358,29 +358,29 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
             .map(\.rawValue)
             .filter { verticalBandSummaries?[$0] != nil }
     }
-    /// Why `guidanceComplete` fired (issue #296): a
+    /// Why `guidanceComplete` fired (issue bolph71656-ai/HTDT-Capture#296): a
     /// `ScanGuidanceCompletionSource` raw value. Optional so payloads
     /// persisted before the source was tracked still decode; nil means
     /// "recorded by an older schema", never "observed".
     public let guidanceCompletionSource: String?
-    // Optional scope/convention markers added for #336/#343/#347.
+    // Optional scope/convention markers added for legacy bolph71656-ai/HTDT-Capture#336/legacy bolph71656-ai/HTDT-Capture#343/legacy bolph71656-ai/HTDT-Capture#347.
     // Optionals keep `htdt.capture.advisory` v1.0.0 payloads written
     // before these fields existed decodable.
     /// Retained weak regions outside the operator's final display
-    /// window (#347): the global-vs-local split is explicit so the
+    /// window (legacy bolph71656-ai/HTDT-Capture#347): the global-vs-local split is explicit so the
     /// summary cannot be misread as viewport-scoped.
     public let remoteWeakRegionCount: Int?
-    /// Live spatial coverage region budget that was configured (#336).
+    /// Live spatial coverage region budget that was configured (legacy bolph71656-ai/HTDT-Capture#336).
     public let spatialMaxRegionCount: Int?
-    /// Peak retained region count observed during the scan (#336).
+    /// Peak retained region count observed during the scan (legacy bolph71656-ai/HTDT-Capture#336).
     public let spatialPeakRegionCount: Int?
     /// Number of retained regions dropped by the capacity budget
-    /// (#336); nil/zero means nothing was forgotten.
+    /// (legacy bolph71656-ai/HTDT-Capture#336); nil/zero means nothing was forgotten.
     public let spatialRegionEvictionCount: Int?
-    /// True when the spatial coverage map was saturated at End (#336).
+    /// True when the spatial coverage map was saturated at End (legacy bolph71656-ai/HTDT-Capture#336).
     public let spatialCapacitySaturated: Bool?
     /// Direction-reference convention the coverage labels were
-    /// rendered in (#343): `start_relative` means sectors/regions are
+    /// rendered in (legacy bolph71656-ai/HTDT-Capture#343): `start_relative` means sectors/regions are
     /// named relative to the operator's arbitrary start heading, never
     /// a room authority.
     public let directionReference: String?
@@ -526,7 +526,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
     }
 }
 
-/// Persisted tallies for one vertical display band (#329).
+/// Persisted tallies for one vertical display band (legacy bolph71656-ai/HTDT-Capture#329).
 public struct CaptureVerticalBandSummary: Sendable, Equatable, Codable {
     public let voxelCount: Int
     public let observedCount: Int

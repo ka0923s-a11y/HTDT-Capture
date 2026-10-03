@@ -1,7 +1,7 @@
 import Foundation
 
 /// "This capture needs" — the operator-facing mission item list
-/// (#364 §4). Human-readable needs derived from the bound mission
+/// (legacy bolph71656-ai/HTDT-Capture#364 §4). Human-readable needs derived from the bound mission
 /// authority (task profile or imported HTDT plan) without exposing
 /// schema identifiers: "2 speakers", "Listening position",
 /// "Display or projection screen". Completeness stays in Review;
@@ -49,7 +49,7 @@ public enum CaptureMissionNeeds {
         )
     }
 
-    /// Needs derived from a generic task profile (#352). Alternative-
+    /// Needs derived from a generic task profile (legacy bolph71656-ai/HTDT-Capture#352). Alternative-
     /// group members merge into a single "A or B" row.
     public static func needs(
         for profile: CaptureTaskProfile
@@ -102,7 +102,7 @@ public enum CaptureMissionNeeds {
         return needs
     }
 
-    /// Needs derived from an imported HTDT task plan (#240): each
+    /// Needs derived from an imported HTDT task plan (legacy bolph71656-ai/HTDT-Capture#240): each
     /// checklist family is aggregated into counted rows — never the
     /// raw `item_id` strings.
     public static func needs(
@@ -254,7 +254,7 @@ public enum CaptureMissionNeeds {
         case .annotationRoleBinding:
             // Resolve through the built-in profile vocabulary when
             // the role ID is known there; otherwise humanize the
-            // token — never the raw role_id (#315). A role that only
+            // token — never the raw role_id (legacy bolph71656-ai/HTDT-Capture#315). A role that only
             // echoes its channel token ("L", "LFE") keeps that letter
             // — installers read it — while an authored display name
             // ("Front left") goes through the localized channel-role
@@ -293,7 +293,7 @@ public enum CaptureMissionNeeds {
         }
     }
 
-    /// Human name for an annotation entity type (#364): the label a
+    /// Human name for an annotation entity type (legacy bolph71656-ai/HTDT-Capture#364): the label a
     /// checklist row shows, never the raw `entity_type` token.
     public static func entityTypeTitle(
         _ type: AnnotationEntityType
@@ -326,7 +326,7 @@ public enum CaptureMissionNeeds {
         }
     }
 
-    /// Human name for a channel-role token (#364 family): the label
+    /// Human name for a channel-role token (legacy bolph71656-ai/HTDT-Capture#364 family): the label
     /// a checklist row or picker shows, never the raw `SL`/`LFE1`
     /// token. Built-in vocabulary maps to a localized name; custom
     /// equipment tokens humanize so they read as words, not code.
@@ -443,7 +443,7 @@ public enum CaptureMissionNeeds {
 
     /// "FRONT_LEFT" becomes "Front left"; terse all-caps tokens and
     /// tokens carrying digits ("L", "LFE1", "LTF") pass through
-    /// unchanged since they are already operator vocabulary (#364).
+    /// unchanged since they are already operator vocabulary (legacy bolph71656-ai/HTDT-Capture#364).
     public static func humanizedToken(_ token: String) -> String {
         let words = token.split(separator: "_").map { word -> String in
             let w = String(word)

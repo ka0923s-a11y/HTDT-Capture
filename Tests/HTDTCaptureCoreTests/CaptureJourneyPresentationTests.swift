@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// Issue #372: the loop-aware journey presentation maps every
+/// Issue bolph71656-ai/HTDT-Capture#372: the loop-aware journey presentation maps every
 /// `CaptureState` onto one stage, picks a single dominant action, and
 /// keeps stage statuses truthful.
 struct CaptureJourneyPresentationTests {
@@ -261,7 +261,7 @@ struct CaptureJourneyPresentationTests {
     }
 }
 
-/// Issue #372 JOURNEY-50: mission progress is evaluated from the plan
+/// Issue bolph71656-ai/HTDT-Capture#372 JOURNEY-50: mission progress is evaluated from the plan
 /// plus committed records — separate from technical readiness.
 struct CaptureJourneyMissionTests {
 

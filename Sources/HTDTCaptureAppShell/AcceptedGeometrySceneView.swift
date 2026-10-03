@@ -5,7 +5,7 @@ import HTDTCaptureCore
 import SceneKit
 #endif
 
-/// The accepted-geometry 3D review surface (issue #408). Everything
+/// The accepted-geometry 3D review surface (issue bolph71656-ai/HTDT-Capture#408). Everything
 /// rendered is committed, persisted evidence — mesh anchor payloads,
 /// RoomPlan surfaces/objects, derived candidates, committed entities —
 /// layered by provenance (capture vs derived vs semantic authority)
@@ -20,7 +20,7 @@ import SceneKit
 /// the workspace surfaces when geometry changed after commitment.
 public struct AcceptedGeometrySceneView: View {
     public let scene: AcceptedGeometrySceneModel
-    /// Read-only is the review contract (#408 §16); authoring hosts
+    /// Read-only is the review contract (legacy bolph71656-ai/HTDT-Capture#408 §16); authoring hosts
     /// still get selection + focus for bound-element inspection.
     public let readOnly: Bool
     @State private var preset: GeometryCameraPreset = .fitRoom
@@ -117,7 +117,7 @@ public struct AcceptedGeometrySceneView: View {
                 #else
                 // macOS verification target: the list below is the
                 // full equivalent — the SceneKit surface is iOS-only
-                // (#408: the package must still compile off-device).
+                // (legacy bolph71656-ai/HTDT-Capture#408: the package must still compile off-device).
                 Text(
                     "3D preview is available on iOS — the elements list carries the same geometry"
                 )
@@ -136,7 +136,7 @@ public struct AcceptedGeometrySceneView: View {
                 layerLegend
             }
 
-            // #408: the accessible equivalent — every rendered element
+            // legacy bolph71656-ai/HTDT-Capture#408: the accessible equivalent — every rendered element
             // as a list, so VoiceOver and non-3D contexts see exactly
             // what the scene shows.
             DisclosureGroup(
@@ -164,7 +164,7 @@ public struct AcceptedGeometrySceneView: View {
         }
     }
 
-    /// The layer visual language (#408 §7): captured evidence,
+    /// The layer visual language (legacy bolph71656-ai/HTDT-Capture#408 §7): captured evidence,
     /// derived candidates and semantic authority never share a color
     /// so a boundary pulled from RoomPlan can never be mistaken for
     /// an operator's committed entity.
@@ -228,7 +228,7 @@ public struct AcceptedGeometrySceneView: View {
         .contentShape(Rectangle())
     }
 
-    /// Selection detail (#408 §9): identity + provenance of the
+    /// Selection detail (legacy bolph71656-ai/HTDT-Capture#408 §9): identity + provenance of the
     /// picked element. Re-anchoring after the epoch changed is an
     /// authoring decision — read-only review only ever inspects.
     private func sceneSelectionCard(
@@ -340,7 +340,7 @@ public enum GeometryScenePresentation {
 }
 
 #if os(iOS)
-/// SceneKit-backed 3D surface (#408 §4): native orbit/pinch/pan via
+/// SceneKit-backed 3D surface (legacy bolph71656-ai/HTDT-Capture#408 §4): native orbit/pinch/pan via
 /// `allowsCameraControl`, tap-to-select wired to the committed
 /// element list, and named camera presets. Every node maps back to
 /// its `GeometrySceneElement` — LOD/impostors would lie about
@@ -585,7 +585,7 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
         scnGeometry.materials = [material]
         let node = SCNNode(geometry: scnGeometry)
         // Vertices are anchor-local; the node's transform carries
-        // them into world space (#408 — accepted pose only).
+        // them into world space (legacy bolph71656-ai/HTDT-Capture#408 — accepted pose only).
         let m = snapshot.worldFromAnchor.values
         node.transform = SCNMatrix4(
             m11: m[0], m12: m[1],
@@ -802,7 +802,7 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
         return node
     }
 
-    /// Direction arrows (#408 §11): full 3D vectors — a horizontal-
+    /// Direction arrows (legacy bolph71656-ai/HTDT-Capture#408 §11): full 3D vectors — a horizontal-
     /// only legacy export renders thin + desaturated and the label
     /// carries the flag, never silently projected flat.
     private func makeIndicatorNode(

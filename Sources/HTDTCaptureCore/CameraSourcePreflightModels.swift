@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bounded camera-source preflight models (issue #277).
+/// Bounded camera-source preflight models (issue bolph71656-ai/HTDT-Capture#277).
 ///
 /// Source-quality assistance, not a measurement/completeness authority:
 /// the outcome may surface a single advisory card before/early in a
@@ -30,7 +30,7 @@ public struct CameraSourcePreflightPolicy: Sendable, Equatable {
     /// estimate is not a calibrated capture-validity metric, so the
     /// warning ships only if lane-A physical evaluation shows it
     /// predicts an operator-correctable problem beyond the existing
-    /// low-light guidance (#283).
+    /// low-light guidance (legacy bolph71656-ai/HTDT-Capture#283).
     public let lowLightAdvisoryEnabled: Bool
 
     /// Ambient intensity (lumens) below which the optional Stage-B

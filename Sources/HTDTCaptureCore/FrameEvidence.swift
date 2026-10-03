@@ -105,7 +105,7 @@ public enum DepthEvidenceKind: String, Codable, Sendable, Equatable {
 }
 
 /// Why a high-quality visual evidence frame was requested (issue
-/// #275). Deliberate, bounded purposes only — routine frame retention
+/// legacy bolph71656-ai/HTDT-Capture#275). Deliberate, bounded purposes only — routine frame retention
 /// is never silently upgraded to high-resolution photography.
 public enum HighQualityEvidencePurpose: String, Codable, Sendable,
     Equatable

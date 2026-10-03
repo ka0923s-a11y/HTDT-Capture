@@ -18,7 +18,7 @@ public enum HTDTEquipmentCatalogError:
 /// Closed `identity_kind` token set of the HTDT equipment-catalog v1
 /// entry contract (`Literal['manufacturer', 'user_defined']` in the
 /// backend model). Unknown values must fail catalog import rather than
-/// be mapped onto a supported kind (#201).
+/// be mapped onto a supported kind (legacy bolph71656-ai/HTDT-Capture#201).
 public enum HTDTEquipmentIdentityKind:
     String,
     Codable,
@@ -93,7 +93,7 @@ public struct HTDTEquipmentCatalogEntry:
     /// Untrusted catalog JSON must satisfy the same per-entry
     /// invariants as the explicit initializer; routing every decoded
     /// entry through `init(...)` keeps synthesized decoding from
-    /// bypassing validation (#201).
+    /// bypassing validation (legacy bolph71656-ai/HTDT-Capture#201).
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(
             keyedBy: CodingKeys.self
@@ -167,7 +167,7 @@ public struct HTDTEquipmentCatalogEntry:
     }
 }
 
-/// Optional catalog-level source identity on a snapshot (#302).
+/// Optional catalog-level source identity on a snapshot (legacy bolph71656-ai/HTDT-Capture#302).
 ///
 /// The v1 entry contract pins every definition by exact
 /// ID/version/SHA-256; this context answers the separate question
@@ -270,7 +270,7 @@ public struct HTDTEquipmentCatalogContext:
     }
 }
 
-/// The operator-visible identity of a catalog snapshot (#302): the
+/// The operator-visible identity of a catalog snapshot (legacy bolph71656-ai/HTDT-Capture#302): the
 /// declared context fields plus the semantic content digest, which is
 /// always computable even for legacy snapshots with no context block.
 /// The stable key — backend snapshot ID when present, content digest
@@ -317,7 +317,7 @@ public struct HTDTEquipmentCatalogSnapshot:
     public let schema: String
     public let schemaVersion: Int
     public let authorityVersion: String
-    /// Source/project identity of this snapshot (#302); nil on imports
+    /// Source/project identity of this snapshot (legacy bolph71656-ai/HTDT-Capture#302); nil on imports
     /// that predate the context contract.
     public let catalogContext: HTDTEquipmentCatalogContext?
     public let definitions: [HTDTEquipmentCatalogEntry]
@@ -380,7 +380,7 @@ public struct HTDTEquipmentCatalogSnapshot:
         self.definitions = definitions
     }
 
-    /// Annotation types this snapshot's catalog may attach to (#237).
+    /// Annotation types this snapshot's catalog may attach to (legacy bolph71656-ai/HTDT-Capture#237).
     /// Nil/unknown authority versions are surfaced as
     /// `unknownAuthorityVersion` by `HTDTEquipmentCompatibility.check`.
     public var compatibleAnnotationTypes: Set<AnnotationEntityType> {
@@ -391,7 +391,7 @@ public struct HTDTEquipmentCatalogSnapshot:
 
     /// Semantic digest over the authority version plus every
     /// definition tuple, independent of definition ordering and of any
-    /// JSON formatting in the source file (#302): two snapshots with
+    /// JSON formatting in the source file (legacy bolph71656-ai/HTDT-Capture#302): two snapshots with
     /// identical content have identical digests even when their bytes
     /// differ, so the digest is the portable pin a task plan can demand.
     public var contentSHA256: EvidenceSHA256 {
@@ -430,7 +430,7 @@ public struct HTDTEquipmentCatalogSnapshot:
         return EvidenceIntegrity.sha256(of: canonical ?? Data())
     }
 
-    /// The operator-visible catalog identity (#302): declared context
+    /// The operator-visible catalog identity (legacy bolph71656-ai/HTDT-Capture#302): declared context
     /// when present, content digest always.
     public var identity: HTDTEquipmentCatalogIdentity {
         HTDTEquipmentCatalogIdentity(
@@ -496,7 +496,7 @@ public struct HTDTEquipmentCatalogSnapshot:
 }
 
 /// Versioned taxonomy mapping catalog `authority_version` strings to
-/// the annotation types that may carry those references (#237).
+/// the annotation types that may carry those references (legacy bolph71656-ai/HTDT-Capture#237).
 ///
 /// `o100c-equipment-definition-1` is the acoustic-source equipment
 /// catalog — its exact tuples are compatible with `speaker` and
@@ -531,7 +531,7 @@ public enum HTDTEquipmentCompatibility {
 }
 
 /// Durable app-local mirror of the last validated HTDT
-/// equipment-catalog snapshot (#211).
+/// equipment-catalog snapshot (legacy bolph71656-ai/HTDT-Capture#211).
 ///
 /// The catalog is operator reference context for exact equipment
 /// selection — it is never capture-bundle authority — so it is stored
@@ -588,7 +588,7 @@ public struct HTDTEquipmentCatalogCache: Sendable {
 }
 
 /// Multi-catalog store for the app-local equipment-catalog mirror
-/// (#302). Replaces the single `imported-equipment-catalog.json`
+/// (legacy bolph71656-ai/HTDT-Capture#302). Replaces the single `imported-equipment-catalog.json`
 /// slot: every imported snapshot is validated, stored under the SHA-256
 /// of its exact bytes, and only becomes the selection context through
 /// an explicit activation — two project/backend catalogs coexist and
@@ -597,7 +597,7 @@ public struct HTDTEquipmentCatalogCache: Sendable {
 /// Activation pointer: `active-catalog` inside the library directory
 /// holds the content key of the selected snapshot. When the pointer is
 /// absent and exactly one snapshot is stored, that one is active —
-/// preserving the pre-#302 "last imported catalog" behavior. A
+/// preserving the pre-legacy bolph71656-ai/HTDT-Capture#302 "last imported catalog" behavior. A
 /// `HTDTEquipmentCatalogCache` single file at `legacyFileURL` is
 /// migrated into the library on first read so its context (absent by
 /// definition) reads as unknown/legacy instead of vanishing.
@@ -613,7 +613,7 @@ public struct HTDTEquipmentCatalogLibrary: Sendable {
     }
 
     public let directory: URL
-    /// Pre-#302 single-slot cache migrated on first access; nil
+    /// Pre-legacy bolph71656-ai/HTDT-Capture#302 single-slot cache migrated on first access; nil
     /// disables migration.
     public let legacyFileURL: URL?
 
@@ -786,7 +786,7 @@ public struct HTDTEquipmentCatalogLibrary: Sendable {
         }
     }
 
-    /// Folds a readable pre-#302 single-slot cache into the library
+    /// Folds a readable pre-legacy bolph71656-ai/HTDT-Capture#302 single-slot cache into the library
     /// and activates it. Invalid legacy bytes are discarded by the
     /// single-slot cache's own load() rule — they are never imported.
     private func migrateLegacyIfNeeded() {

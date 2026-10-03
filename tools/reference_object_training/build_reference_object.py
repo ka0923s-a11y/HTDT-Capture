@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a .referenceobject artifact from the training manifest (issue #268).
+"""Build a .referenceobject artifact from the training manifest (issue bolph71656-ai/HTDT-Capture#268).
 
 Reads tools/reference_object_training/training-manifest.json, verifies the
 source USDZ digest, resolves the `xcrun createml objecttracker` command line

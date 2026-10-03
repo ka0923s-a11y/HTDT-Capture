@@ -17,7 +17,7 @@ public struct CaptureScanningView: View {
     public let statusMessage: String?
     public let endScanGuidance: String?
     public let captureEvidenceFrame: () -> Void
-    /// #275: bounded one-shot high-resolution still — the operator
+    /// legacy bolph71656-ai/HTDT-Capture#275: bounded one-shot high-resolution still — the operator
     /// picks a stated purpose; repeated taps reject while one is in
     /// flight.
     public let captureHighResolutionEvidence:
@@ -25,45 +25,45 @@ public struct CaptureScanningView: View {
     public let setMovementCapability:
         (ScanMovementCapability) -> Void
     public let endScan: () -> Void
-    /// True while the host is committing the End transaction (#279):
+    /// True while the host is committing the End transaction (legacy bolph71656-ai/HTDT-Capture#279):
     /// scan controls are replaced with an explicit busy state instead
     /// of looking actionable while actions are internally no-op.
     public let isEndingScan: Bool
     /// True while a manual evidence save is still in flight.
     public let isCapturingEvidence: Bool
     /// True while a bounded high-resolution still is in flight
-    /// (#275).
+    /// (legacy bolph71656-ai/HTDT-Capture#275).
     public let isCapturingHighResolutionEvidence: Bool
-    /// Frames retained by the bounded automatic selector (#216).
+    /// Frames retained by the bounded automatic selector (legacy bolph71656-ai/HTDT-Capture#216).
     public let automaticEvidenceCount: Int
-    /// Live storage accounting for the working revision (#308):
+    /// Live storage accounting for the working revision (legacy bolph71656-ai/HTDT-Capture#308):
     /// retained bytes by category, measured device free space, and
     /// the automatic-keyframe budget. Advisory only.
     public let evidenceStorageAdvisory:
         CaptureEvidenceStorageAdvisory?
-    /// Live low-light recovery surface (#283).
+    /// Live low-light recovery surface (legacy bolph71656-ai/HTDT-Capture#283).
     public let lowLightGuidanceActive: Bool
-    /// #277: bounded camera-source preflight advisory — one card,
+    /// legacy bolph71656-ai/HTDT-Capture#277: bounded camera-source preflight advisory — one card,
     /// advisory only, always with a Continue path.
     public let sourceQualityAdvisory: CameraSourceAdvisory?
-    /// Active targeted-object pass status (#250).
+    /// Active targeted-object pass status (legacy bolph71656-ai/HTDT-Capture#250).
     public let targetScanStatus: TargetScanStatus?
-    /// #269: live iterative-segmentation interaction state for the
+    /// legacy bolph71656-ai/HTDT-Capture#269: live iterative-segmentation interaction state for the
     /// object pass (`.unavailable` when idle or assets unsupported).
     public let segmentationInteraction: SegmentationInteractionState
-    /// Operator-declared unresolved regions (#257).
+    /// Operator-declared unresolved regions (legacy bolph71656-ai/HTDT-Capture#257).
     public let declaredRegions: [DeclaredCoverageRegion]
-    /// Return-to-start check state (#273).
+    /// Return-to-start check state (legacy bolph71656-ai/HTDT-Capture#273).
     public let loopClosureCheckActive: Bool
     public let loopClosureAssessment: LoopClosureAssessment?
-    /// Non-visual guidance cue master switch (#252).
+    /// Non-visual guidance cue master switch (legacy bolph71656-ai/HTDT-Capture#252).
     public let guidanceCuesEnabled: Bool
-    /// Unresolved revisit flags dropped during this scan (#325).
+    /// Unresolved revisit flags dropped during this scan (legacy bolph71656-ai/HTDT-Capture#325).
     public let revisitFlagCount: Int
     /// True when the bounded flag store is full — the flag control
     /// stays visible but disabled.
     public let revisitFlagsFull: Bool
-    /// One-tap revisit-flag drop (#325). Returns the new flag id when
+    /// One-tap revisit-flag drop (legacy bolph71656-ai/HTDT-Capture#325). Returns the new flag id when
     /// persisted so the view can offer the optional details sheet, nil
     /// when the flag could not be recorded.
     public let flagForReview: () -> String?
@@ -74,16 +74,16 @@ public struct CaptureScanningView: View {
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
-    /// #269: forwards an operator seed/refine gesture as a Core
+    /// legacy bolph71656-ai/HTDT-Capture#269: forwards an operator seed/refine gesture as a Core
     /// `SegmentationGesture` (view-normalized points + viewport size);
     /// the coordinator maps it through the display-transform authority.
     public let segmentationGesture:
         (SegmentationGesture) -> Void
-    /// #269: "Use" — fuse + persist the accepted mask.
+    /// legacy bolph71656-ai/HTDT-Capture#269: "Use" — fuse + persist the accepted mask.
     public let useSegmentation: () -> Void
-    /// #269: drop the live run ("Cancel" / "New selection").
+    /// legacy bolph71656-ai/HTDT-Capture#269: drop the live run ("Cancel" / "New selection").
     public let cancelSegmentation: () -> Void
-    /// #269: explicit operator asset-prep request.
+    /// legacy bolph71656-ai/HTDT-Capture#269: explicit operator asset-prep request.
     public let segmentationAssetPrepare: () -> Void
     public let declareNearestUnresolvedRegion:
         (DeclaredRegionReason) -> Void
@@ -91,37 +91,37 @@ public struct CaptureScanningView: View {
         (SpatialCoverageCellKey) -> Void
     public let setGuidanceCuesEnabled: (Bool) -> Void
     public let setLoopClosureCheckActive: (Bool) -> Void
-    /// #273: records the operator's response to the armed
+    /// legacy bolph71656-ai/HTDT-Capture#273: records the operator's response to the armed
     /// return-to-start check as advisory provenance.
     public let recordLoopClosureOutcome: (String) -> Void
-    /// #273: "Rescan" response — discards the in-progress working
+    /// legacy bolph71656-ai/HTDT-Capture#273: "Rescan" response — discards the in-progress working
     /// revision entirely (the host's own confirm contract applies).
     public let discardCapture: () -> Void
-    /// #277: re-runs the bounded source-quality preflight once.
+    /// legacy bolph71656-ai/HTDT-Capture#277: re-runs the bounded source-quality preflight once.
     public let recheckSourceQuality: () -> Void
-    /// #277: dismisses the advisory card (recorded, never gating).
+    /// legacy bolph71656-ai/HTDT-Capture#277: dismisses the advisory card (recorded, never gating).
     public let dismissSourceQualityAdvisory: () -> Void
-    /// #214/#250: live center-ray probe for the scanning-surface
+    /// legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#250: live center-ray probe for the scanning-surface
     /// reticle, so aim-based actions never fire a blind center
     /// raycast.
     public let probePlacementTarget:
         () async -> AnnotationPlacementProbe
-    /// #375: commits an operator field note bound to this revision
+    /// legacy bolph71656-ai/HTDT-Capture#375: commits an operator field note bound to this revision
     /// during scanning — (text, category, needsAttention,
-    /// attachLatestEvidence, dictated, anchorRequest). #421: the
+    /// attachLatestEvidence, dictated, anchorRequest). legacy bolph71656-ai/HTDT-Capture#421: the
     /// anchor request asks the host to validate a subject-point
     /// raycast or record the device viewpoint; an unavailable
     /// anchor degrades to no location rather than fabricating one.
     public let recordFieldNote:
         (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
          CaptureFieldNoteAnchorRequest) -> Void
-    /// Latest copilot resolution for this scan (#272); nil until
+    /// Latest copilot resolution for this scan (legacy bolph71656-ai/HTDT-Capture#272); nil until
     /// the operator asks. Advisory only — the suggestion can never
     /// act on the capture itself.
     public let scanCopilotResolution: ScanCopilotResolution?
     /// True while a copilot request is resolving.
     public let isScanCopilotResolving: Bool
-    /// #272: asks the host for an advisory next-step suggestion.
+    /// legacy bolph71656-ai/HTDT-Capture#272: asks the host for an advisory next-step suggestion.
     public let requestScanCopilotSuggestion: () -> Void
 
     @State private var showingEndScanReview = false
@@ -130,16 +130,16 @@ public struct CaptureScanningView: View {
     @State private var showingSpatialMap = false
     @State private var showingDerivedPreview = false
     @State private var derivedPreviewMode: DerivedPreviewMode = .observation
-    /// #325: the flag whose optional details sheet is open.
+    /// legacy bolph71656-ai/HTDT-Capture#325: the flag whose optional details sheet is open.
     @State private var flagDetailsID: String?
     @State private var flagDetailsCategory: ScanRevisitFlagCategory?
     @State private var flagDetailsNote = ""
     @State private var composingFieldNote = false
-    /// Live reticle probe over the scanning preview (#214/#250).
+    /// Live reticle probe over the scanning preview (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#250).
     @State private var centerProbe = AnnotationPlacementProbe
         .unavailable
     @State private var centerProbeTask: Task<Void, Never>?
-    /// Two-tap arm for the loop-check "Rescan" response (#273) —
+    /// Two-tap arm for the loop-check "Rescan" response (legacy bolph71656-ai/HTDT-Capture#273) —
     /// the discard is destructive, so the first tap only arms the
     /// confirm label.
     @State private var loopRescanArmed = false
@@ -147,7 +147,7 @@ public struct CaptureScanningView: View {
     /// exit that discards the in-progress capture without ending
     /// into Review.
     @State private var stopScanArmed = false
-    // #269: seed/refine interaction state for the preview overlay —
+    // legacy bolph71656-ai/HTDT-Capture#269: seed/refine interaction state for the preview overlay —
     /// which gesture produces a seed (tap / box / lasso→scribble) and
     /// whether a refinement tap includes or excludes the point.
     @State private var segmentationSeedMode = SegmentationSeedMode.point
@@ -157,7 +157,7 @@ public struct CaptureScanningView: View {
     @State private var segmentationDragPoints: [CGPoint] = []
     @State private var segmentationDragAnchor: CGPoint?
 #if os(iOS)
-    /// #364 §5/§16: on regular width the expanded HUD presents as a
+    /// legacy bolph71656-ai/HTDT-Capture#364 §5/§16: on regular width the expanded HUD presents as a
     /// trailing inspector pane instead of a bottom overlay covering
     /// the preview.
     @Environment(\.horizontalSizeClass)
@@ -303,12 +303,12 @@ public struct CaptureScanningView: View {
 
                 preview
                     .ignoresSafeArea()
-                    // #269: the seed/refine input layer lives inside the
+                    // legacy bolph71656-ai/HTDT-Capture#269: the seed/refine input layer lives inside the
                     // preview's own bounds — the view-normalized points
                     // it emits must cover exactly the image region the
                     // recorded display transform maps.
                     .overlay(segmentationGestureSurface)
-                    // #73: the framework miniature 3D model renders at
+                    // legacy bolph71656-ai/HTDT-Capture#73: the framework miniature 3D model renders at
                     // the bottom of the preview — reserve unobstructed
                     // space for it above the bottom controls (and the
                     // expanded bottom HUD when it overlays compact
@@ -361,7 +361,7 @@ public struct CaptureScanningView: View {
                         .allowsHitTesting(false)
                 }
 
-                // #214/#250: a live center reticle + hit probe over the
+                // legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#250: a live center reticle + hit probe over the
                 // shared preview, so aim-based actions ("Scan this
                 // object") never execute a blind center raycast — the
                 // operator sees the target class + distance first.
@@ -436,7 +436,7 @@ public struct CaptureScanningView: View {
     }
 
     /// Center reticle + live probe label over the scanning preview
-    /// (#214/#250). Same probe contract as the annotation camera
+    /// (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#250). Same probe contract as the annotation camera
     /// sheet: the ring turns green on a hit and the capsule names
     /// the target class + distance; misses show only the dim ring.
     private var centerReticle: some View {
@@ -481,7 +481,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    /// #325: the optional post-flag details sheet. Dropping a flag is
+    /// legacy bolph71656-ai/HTDT-Capture#325: the optional post-flag details sheet. Dropping a flag is
     /// a single tap during scanning; category/note are offered only
     /// afterwards, when the operator has stopped to interact — and the
     /// scan keeps running either way.
@@ -559,7 +559,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    /// #73: vertical space reserved below the preview so the framework
+    /// legacy bolph71656-ai/HTDT-Capture#73: vertical space reserved below the preview so the framework
     /// miniature 3D model (rendered at the preview's bottom edge) is
     /// never covered by the bottom control row or the expanded HUD
     /// when it overlays compact widths. On regular width the HUD is a
@@ -657,7 +657,7 @@ public struct CaptureScanningView: View {
                     alignment: .leading
                 )
 
-            // #313: translation prompts always carry the safety
+            // legacy bolph71656-ai/HTDT-Capture#313: translation prompts always carry the safety
             // qualifier inline; the note reminds the operator the app
             // cannot verify their path.
             if let motionGuidance,
@@ -670,12 +670,12 @@ public struct CaptureScanningView: View {
                     .minimumScaleFactor(0.8)
             }
 
-            // #283: the low-light prompt is a distinct surface, not
-            // folded into generic tracking wording. #364 §5: the
+            // legacy bolph71656-ai/HTDT-Capture#283: the low-light prompt is a distinct surface, not
+            // folded into generic tracking wording. legacy bolph71656-ai/HTDT-Capture#364 §5: the
             // compact HUD shows at most one highest-priority advisory
             // — the actionable environment warning outranks transient
             // status text; everything else stays reachable through
-            // the expanded details. #277: the one-shot source-quality
+            // the expanded details. legacy bolph71656-ai/HTDT-Capture#277: the one-shot source-quality
             // card shares this slot while it is pending — it is
             // operator-actionable (Recheck) and self-dismisses.
             if let sourceQualityAdvisory {
@@ -722,11 +722,11 @@ public struct CaptureScanningView: View {
             )
         )
         // VoiceOver reaches the action sentence first: it carries the
-        // next-action guidance rather than Canvas drawing order (#342).
+        // next-action guidance rather than Canvas drawing order (legacy bolph71656-ai/HTDT-Capture#342).
         .accessibilitySortPriority(1)
     }
 
-    /// #277: the single source-quality card — smudge and (Stage-B,
+    /// legacy bolph71656-ai/HTDT-Capture#277: the single source-quality card — smudge and (Stage-B,
     /// disabled by default) low-light findings share one surface so
     /// the HUD never stacks two source warnings. Advisory only:
     /// "Continue anyway" always exists and never gates End.
@@ -795,7 +795,7 @@ public struct CaptureScanningView: View {
                 .controlSize(.mini)
             }
         case .safetyConstrained:
-            // #313: movement was marked unsafe — translation prompts
+            // legacy bolph71656-ai/HTDT-Capture#313: movement was marked unsafe — translation prompts
             // are hidden and the mode is labeled distinctly from a
             // voluntary stationary scan so Review can tell them apart.
             HStack(spacing: 8) {
@@ -816,7 +816,7 @@ public struct CaptureScanningView: View {
                 .controlSize(.mini)
             }
         case .unrestricted:
-            // #313: while guidance may instruct movement, both
+            // legacy bolph71656-ai/HTDT-Capture#313: while guidance may instruct movement, both
             // opt-outs stay immediately visible — "I cannot move"
             // (operator preference) and "Movement unsafe here"
             // (environment). Neither is framed as failing the scan.
@@ -866,7 +866,7 @@ public struct CaptureScanningView: View {
                 .minimumScaleFactor(0.72)
                 .frame(minHeight: 38)
             }
-            // #364 §5: exactly one prominent action at a time — Save
+            // legacy bolph71656-ai/HTDT-Capture#364 §5: exactly one prominent action at a time — Save
             // evidence leads while coverage is incomplete and yields
             // to End once the scan is ready to finish.
             .scanControlStyle(prominent: !primaryScanReadyToEnd)
@@ -876,7 +876,7 @@ public struct CaptureScanningView: View {
                 String(localized: "Save evidence frame")
             )
 
-            // #275: a deliberate high-resolution still — the operator
+            // legacy bolph71656-ai/HTDT-Capture#275: a deliberate high-resolution still — the operator
             // states the purpose so the retained evidence keeps honest
             // provenance; at most one ARKit request is in flight.
             Menu {
@@ -923,7 +923,7 @@ public struct CaptureScanningView: View {
                 )
             )
 
-            // #325: one large tap marks the current view for mandatory
+            // legacy bolph71656-ai/HTDT-Capture#325: one large tap marks the current view for mandatory
             // Review without interrupting the scan. The optional
             // details sheet is offered only once the flag persisted.
             Button {
@@ -963,7 +963,7 @@ public struct CaptureScanningView: View {
                 )
             )
 
-            // #375: operator note bound to the live scan context —
+            // legacy bolph71656-ai/HTDT-Capture#375: operator note bound to the live scan context —
             // timestamps and the latest committed evidence frame are
             // captured by the host, never typed in by hand.
             Button {
@@ -1045,7 +1045,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    /// Explicit busy state for the End transaction (#279): the
+    /// Explicit busy state for the End transaction (legacy bolph71656-ai/HTDT-Capture#279): the
     /// controls are disabled and this overlay explains that RoomPlan
     /// is producing the final result, so the operator can distinguish
     /// "still scanning" from "committing End".
@@ -1324,7 +1324,7 @@ public struct CaptureScanningView: View {
         )
     }
 
-    /// #364 §5: the expanded HUD is a trailing inspector on regular
+    /// legacy bolph71656-ai/HTDT-Capture#364 §5: the expanded HUD is a trailing inspector on regular
     /// width (iPad split layout) — it no longer covers the preview —
     /// and stays a bottom overlay on compact width.
     private var expandedHUDIsInspector: Bool {
@@ -1415,7 +1415,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    /// #272: on-demand advisory copilot. The button asks the host for
+    /// legacy bolph71656-ai/HTDT-Capture#272: on-demand advisory copilot. The button asks the host for
     /// a suggestion; the chip shows the resolved pick with its source
     /// (deterministic vs model). Nothing here acts on the capture —
     /// the suggestion only rewords already-visible guidance.
@@ -1522,7 +1522,7 @@ public struct CaptureScanningView: View {
             }
             .frame(height: 36)
             // One compact summary instead of 36 near-identical cell
-            // labels (#342); the cells stay visual and their state is
+            // labels (legacy bolph71656-ai/HTDT-Capture#342); the cells stay visual and their state is
             // fully expressed by the summary text.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
@@ -1709,7 +1709,7 @@ public struct CaptureScanningView: View {
                         .foregroundStyle(.black.opacity(0.75))
                 } else {
                     // Missing cells carry their own mark so state is
-                    // never color-only (#342).
+                    // never color-only (legacy bolph71656-ai/HTDT-Capture#342).
                     Image(systemName: "minus")
                         .font(.system(size: 6, weight: .black))
                         .foregroundStyle(
@@ -1735,7 +1735,7 @@ public struct CaptureScanningView: View {
             .accessibilityHidden(true)
     }
 
-    /// The spoken direction summary (#342) from the same coverage
+    /// The spoken direction summary (legacy bolph71656-ai/HTDT-Capture#342) from the same coverage
     /// state the visual grid renders — percent, missing directions by
     /// band, and the deterministic next target.
     private var directionCoverageAccessibilityText: String {
@@ -1782,7 +1782,7 @@ public struct CaptureScanningView: View {
             spatialCoverage.observedRegionCount,
             spatialCoverage.weakRegionCount
         )
-        // #336: dropped cells are reported, never silently forgotten.
+        // legacy bolph71656-ai/HTDT-Capture#336: dropped cells are reported, never silently forgotten.
         guard spatialCoverage.capacity.evictionCount > 0 else {
             return base
         }
@@ -1792,7 +1792,7 @@ public struct CaptureScanningView: View {
         )
     }
 
-    /// #329: the five display bands of the 3D coverage layer — one
+    /// legacy bolph71656-ai/HTDT-Capture#329: the five display bands of the 3D coverage layer — one
     /// chip per stratum from lowest to highest, colored by the weakest
     /// voxel classification in that band so a ceiling gap is visible
     /// even when the floor cells below it are fully observed.
@@ -2010,7 +2010,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    // MARK: - Targeted object pass (#250)
+    // MARK: - Targeted object pass (legacy bolph71656-ai/HTDT-Capture#250)
 
     /// Optional "Scan this object" surface: a bounded anchored orbit
     /// pass with target-specific guidance and explicit
@@ -2042,7 +2042,7 @@ public struct CaptureScanningView: View {
                 )
                 .tint(status.isComplete ? .green : .accentColor)
 
-                // #250: live distance to the locked target anchor —
+                // legacy bolph71656-ai/HTDT-Capture#250: live distance to the locked target anchor —
                 // the continuous "which object" confirmation while
                 // the camera moves around it.
                 if let distance = status.distanceToTargetMeters {
@@ -2077,7 +2077,7 @@ public struct CaptureScanningView: View {
                     .controlSize(.small)
                 }
 
-                // #269: bounded iterative-segmentation controls inside
+                // legacy bolph71656-ai/HTDT-Capture#269: bounded iterative-segmentation controls inside
                 // the same pass card — never a separate workflow.
                 segmentationPassSection
             }
@@ -2099,7 +2099,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    /// #269: seed/refine input layer over the live preview. Hit-testable
+    /// legacy bolph71656-ai/HTDT-Capture#269: seed/refine input layer over the live preview. Hit-testable
     /// only inside an object pass while the interaction accepts input;
     /// points are normalized by the preview's own bounds so the
     /// coordinator's recorded display transform stays the sole
@@ -2243,7 +2243,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    /// #269 object-pass block: asset readiness (explicit prep only)
+    /// legacy bolph71656-ai/HTDT-Capture#269 object-pass block: asset readiness (explicit prep only)
     /// plus the bounded seed→refine→use controls.
     @ViewBuilder
     private var segmentationPassSection: some View {
@@ -2460,7 +2460,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    // MARK: - Operator-declared regions (#257)
+    // MARK: - Operator-declared regions (legacy bolph71656-ai/HTDT-Capture#257)
 
     /// Declare a bounded unresolved coverage cell as intentionally
     /// left (inaccessible/occluded/unsafe/out-of-scope); reversible
@@ -2521,7 +2521,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    // MARK: - Return-to-start check (#273)
+    // MARK: - Return-to-start check (legacy bolph71656-ai/HTDT-Capture#273)
 
     /// Optional advisory loop-closure check: arm it, walk back to the
     /// scan start, and compare the residual. Never silently corrects
@@ -2554,7 +2554,7 @@ public struct CaptureScanningView: View {
                             : .secondary
                     )
 
-                // #273 operator responses: every answer is recorded
+                // legacy bolph71656-ai/HTDT-Capture#273 operator responses: every answer is recorded
                 // as advisory provenance; the check never corrects
                 // coordinates itself.
                 HStack(spacing: 8) {
@@ -2631,7 +2631,7 @@ public struct CaptureScanningView: View {
         }
     }
 
-    // MARK: - Non-visual cues (#252)
+    // MARK: - Non-visual cues (legacy bolph71656-ai/HTDT-Capture#252)
 
     private var guidanceCuesToggle: some View {
         Toggle(
@@ -2680,7 +2680,7 @@ public struct CaptureScanningView: View {
         Int((coverage.coverageFraction * 100).rounded())
     }
 
-    /// Completion copy keyed on the typed source (issue #296): a
+    /// Completion copy keyed on the typed source (issue bolph71656-ai/HTDT-Capture#296): a
     /// budget- or constraint-terminated scan never reads as
     /// "everything was observed", and the unresolved weak count stays
     /// visible when the source is not `.observed`.
@@ -3055,7 +3055,7 @@ public struct CaptureScanningView: View {
             return String(localized: "Front left")
         }
     }
-    /// Retained-storage accounting for the working revision (#308).
+    /// Retained-storage accounting for the working revision (legacy bolph71656-ai/HTDT-Capture#308).
     /// Shows bytes by category plus the measured device free space and
     /// the automatic-keyframe budget — evidence counts alone no longer
     /// stand in for storage cost. Advisory only: this section never
@@ -3259,7 +3259,7 @@ public struct CaptureScanningView: View {
 }
 
 /// Localized display name for a principal direction — the same
-/// octant vocabulary VoiceOver summaries use (#342).
+/// octant vocabulary VoiceOver summaries use (legacy bolph71656-ai/HTDT-Capture#342).
 private func octantDisplayName(
     _ octant: ScanDirectionOctant
 ) -> String {
@@ -3402,7 +3402,7 @@ private struct ScanCoverageEndReview: View {
     let coverage: ScanCoverageSummary
     let spatialCoverage: SpatialScanCoverageSummary
     let declaredRegions: [DeclaredCoverageRegion]
-    /// Global unresolved-weak accounting (#347): the display window
+    /// Global unresolved-weak accounting (legacy bolph71656-ai/HTDT-Capture#347): the display window
     /// is presentation scope only, so the review must distinguish
     /// retained weak regions beyond the current map view from the
     /// unknown cells inside it.
@@ -3493,7 +3493,7 @@ private struct ScanCoverageEndReview: View {
                         .foregroundStyle(CaptureColorRole.attention.color)
                     }
 
-                    // #329: the vertical layer is listed separately so
+                    // legacy bolph71656-ai/HTDT-Capture#329: the vertical layer is listed separately so
                     // a floor-level "observed" classification can never
                     // hide an unobserved ceiling at the same X/Z.
                     if spatialCoverage.vertical.voxelCount > 0 {
@@ -3671,7 +3671,7 @@ private struct ScanCoverageEndReview: View {
         }
     }
 
-    /// Spoken coverage summary when the review opens (#342): the same
+    /// Spoken coverage summary when the review opens (legacy bolph71656-ai/HTDT-Capture#342): the same
     /// semantic state the haptic/spoken cues consume, composed into
     /// one announcement so the review state is never visual-only.
     private func announceReviewSummary() {
@@ -3717,7 +3717,7 @@ private struct ScanCoverageEndReview: View {
     }
 
     /// Previously observed cells the capacity budget dropped inside
-    /// the current map view (#336) — labeled so 'unknown' is never
+    /// the current map view (legacy bolph71656-ai/HTDT-Capture#336) — labeled so 'unknown' is never
     /// conflated with 'forgotten'.
     private var droppedSpatialLabels: [String] {
         guard let bounds = spatialCoverage.displayBounds else {
@@ -3776,7 +3776,7 @@ private struct ScanCoverageEndReview: View {
         )
         let angle = atan2(x, z)
 
-        // #343: labels are start-relative; the scan's reference yaw
+        // legacy bolph71656-ai/HTDT-Capture#343: labels are start-relative; the scan's reference yaw
         // is the operator's arbitrary start heading, never a room
         // 'Front'.
         return String(
@@ -3869,10 +3869,10 @@ private struct ScanCoverageEndReview: View {
     }
 }
 
-/// Localized direction copy for coverage surfaces (#343). Every label
+/// Localized direction copy for coverage surfaces (legacy bolph71656-ai/HTDT-Capture#343). Every label
 /// is relative to the operator's start heading — captured as the
 /// scan's reference yaw — never an unqualified room 'Front'/'Rear'.
-/// A confirmed room reference frame (#232) is the only authority that
+/// A confirmed room reference frame (legacy bolph71656-ai/HTDT-Capture#232) is the only authority that
 /// may rename these, and only through its exact reference yaw.
 private enum StartRelativeDirectionCopy {
     static func sectorLabel(
@@ -3932,7 +3932,7 @@ private enum StartRelativeDirectionCopy {
 
 private struct SpatialCoverageMapView: View {
     let summary: SpatialScanCoverageSummary
-    /// Regions the operator marked intentionally unresolved (#257):
+    /// Regions the operator marked intentionally unresolved (legacy bolph71656-ai/HTDT-Capture#257):
     /// excluded from the prioritized weak-region readout.
     var declaredRegionKeys: Set<SpatialCoverageCellKey> = []
 
@@ -3979,7 +3979,7 @@ private struct SpatialCoverageMapView: View {
                         }
 
                         let cellPath = Path(rect)
-                        // Shape separates state from color (#342):
+                        // Shape separates state from color (legacy bolph71656-ai/HTDT-Capture#342):
                         // observed fills + a center dot, weak fills +
                         // a diagonal hatch, unknown is border-only.
                         if classification == .unknown {
@@ -4038,7 +4038,7 @@ private struct SpatialCoverageMapView: View {
                             with: .color(color)
                         )
 
-                        // #336: a cell dropped by the capacity budget
+                        // legacy bolph71656-ai/HTDT-Capture#336: a cell dropped by the capacity budget
                         // is drawn as a dashed outline, distinct from
                         // a never-observed unknown cell.
                         if summary.wasRecentlyEvicted(at: key) {
@@ -4123,7 +4123,7 @@ private struct SpatialCoverageMapView: View {
             )
         )
         // The Canvas is one element; the full semantic map state is
-        // delivered as the summary value (#342).
+        // delivered as the summary value (legacy bolph71656-ai/HTDT-Capture#342).
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "Start-relative spatial observation map"
@@ -4139,7 +4139,7 @@ private struct SpatialCoverageMapView: View {
 }
 
 private extension View {
-    /// #364 §5: the bottom scan controls carry exactly one prominent
+    /// legacy bolph71656-ai/HTDT-Capture#364 §5: the bottom scan controls carry exactly one prominent
     /// action at a time — the call site decides which control is
     /// primary for the current scan state.
     @ViewBuilder

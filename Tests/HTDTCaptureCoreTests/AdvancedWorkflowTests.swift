@@ -3,10 +3,10 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Issue-cluster coverage for the advanced workflow payloads:
-/// supplemental-document persistence, connected spaces (#222),
-/// instrument adapters (#226), reference targets (#227), task-plan
-/// import (#240), derived-geometry candidates (#249), post-scan
-/// authoring (#282), and as-built verification (#293).
+/// supplemental-document persistence, connected spaces (legacy bolph71656-ai/HTDT-Capture#222),
+/// instrument adapters (legacy bolph71656-ai/HTDT-Capture#226), reference targets (legacy bolph71656-ai/HTDT-Capture#227), task-plan
+/// import (legacy bolph71656-ai/HTDT-Capture#240), derived-geometry candidates (legacy bolph71656-ai/HTDT-Capture#249), post-scan
+/// authoring (legacy bolph71656-ai/HTDT-Capture#282), and as-built verification (legacy bolph71656-ai/HTDT-Capture#293).
 final class AdvancedWorkflowTests: XCTestCase {
     private var relaxedRequirements: CaptureQualityRequirements {
         CaptureQualityRequirements(
@@ -333,7 +333,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         }
     }
 
-    // MARK: - #249 derived geometry candidates
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#249 derived geometry candidates
 
     private func provenance(
         algorithm: String = "wall-fit",
@@ -600,7 +600,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: - #227 reference targets
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#227 reference targets
 
     func testReferenceTargetResidualsAndDiagnostics() throws {
         let target = try ReferenceTargetDeclaration(
@@ -686,7 +686,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: - #226 external measurement instruments
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#226 external measurement instruments
 
     private func makeDescriptor(
     ) throws -> InstrumentAdapterDescriptor {
@@ -830,7 +830,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         }
     }
 
-    // MARK: - #240 capture task plan
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#240 capture task plan
 
     private func makePlanData() throws -> Data {
         let planJSON = """
@@ -1020,7 +1020,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: - #222 connected spaces
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#222 connected spaces
 
     func testConnectedSpaceWorkflow() throws {
         var tracker = ConnectedSpaceTracker(
@@ -1155,7 +1155,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         }
     }
 
-    // MARK: - #282 post-scan authoring
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#282 post-scan authoring
 
     private func makeMeshAnchor() throws -> MeshAnchorSnapshot {
         try MeshAnchorSnapshot(
@@ -1332,7 +1332,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: - #293 as-built verification
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#293 as-built verification
 
     private func makeSpec(
         id: String = "speaker-l",
@@ -1530,7 +1530,7 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
-    // MARK: - #293 ghost overlay plan model
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#293 ghost overlay plan model
 
     func testAsBuiltOverlayRequiresAlignment() throws {
         let session = try AsBuiltVerificationSession(

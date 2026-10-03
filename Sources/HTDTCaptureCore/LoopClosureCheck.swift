@@ -1,6 +1,6 @@
 import Foundation
 
-/// Optional end-of-scan return-to-start consistency check (#273).
+/// Optional end-of-scan return-to-start consistency check (legacy bolph71656-ai/HTDT-Capture#273).
 ///
 /// The operator walks back to the capture start region; the check
 /// compares the reported camera pose with the recorded start

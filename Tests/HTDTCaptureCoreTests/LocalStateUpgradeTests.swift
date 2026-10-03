@@ -15,7 +15,7 @@ private func upgradeTestRoot() throws -> URL {
     return root
 }
 
-/// A v1.0.0 library-metadata document as the pre-#394 app wrote it —
+/// A v1.0.0 library-metadata document as the pre-legacy bolph71656-ai/HTDT-Capture#394 app wrote it —
 /// `series` + `revisions` only, no lifecycle maps.
 private func writeLegacyLibraryMetadata(
     into root: URL

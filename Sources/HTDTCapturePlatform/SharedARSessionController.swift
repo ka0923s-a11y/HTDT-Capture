@@ -67,7 +67,7 @@ public struct CapturedSpeakerOrientation: Sendable {
     }
 }
 
-/// Whole-orientation camera authority in world space (issue #271).
+/// Whole-orientation camera authority in world space (issue bolph71656-ai/HTDT-Capture#271).
 /// Unlike `CapturedSpeakerOrientation`, which flattens the heading to
 /// the X/Z plane for the speaker-yaw convention, this preserves the
 /// full 3D forward+up axes for measurement-point (microphone capsule)
@@ -239,7 +239,7 @@ public enum ARSessionLifecycleEvent: Sendable, Equatable {
 }
 
 /// What `configureReferenceObjects` actually achieved on the live
-/// session (#268) — the recorded outcome distinguishes applied sets,
+/// session (legacy bolph71656-ai/HTDT-Capture#268) — the recorded outcome distinguishes applied sets,
 /// an unsupported tracking request, a refused configuration, and a
 /// post-run read-back mismatch, so provenance never overstates what
 /// ARKit adopted.
@@ -298,7 +298,7 @@ private final class ARSessionLifecycleBridge:
 
     /// Called with every `didUpdate` frame timestamp so the
     /// controller's bounded cadence tracker sees the live frame
-    /// interval distribution (#273 instrumentation).
+    /// interval distribution (legacy bolph71656-ai/HTDT-Capture#273 instrumentation).
     var frameTimestampHandler: (
         @MainActor (Double) -> Void
     )?
@@ -391,7 +391,7 @@ private final class ARSessionLifecycleBridge:
     // Passthrough-only callbacks: forwarded unchanged so the bridge is
     // transparent to any delegate that was installed before it. Mesh
     // anchors are additionally reported to the lifecycle observer so the
-    // store can keep bounded add/update/remove diagnostics (#268).
+    // store can keep bounded add/update/remove diagnostics (legacy bolph71656-ai/HTDT-Capture#268).
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastObservedTimestamp = frame.timestamp
@@ -530,7 +530,7 @@ private final class RoomPlanViewDelegateBridge:
 }
 
 /// Forwards RoomPlan coaching/instruction transitions to the host so a
-/// bounded advisory history survives finalization (#260). The full
+/// bounded advisory history survives finalization (legacy bolph71656-ai/HTDT-Capture#260). The full
 /// delegate protocol is implemented; only `didProvide` is consumed.
 // RoomCaptureSessionDelegate is a pure-Swift protocol with nonisolated
 // requirements (unlike the ObjC ARSessionDelegate/RoomCaptureViewDelegate
@@ -627,11 +627,11 @@ public final class SharedARSessionController {
         RoomPlanSessionInstructionBridge()
     private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
-    /// #275: at most one ARKit high-resolution request in flight;
+    /// legacy bolph71656-ai/HTDT-Capture#275: at most one ARKit high-resolution request in flight;
     /// internal so the HighResolutionEvidence extension enforces it.
     var highResolutionRequestInFlight = false
 
-    /// Bounded AR frame-interval measurement (#273 instrumentation).
+    /// Bounded AR frame-interval measurement (legacy bolph71656-ai/HTDT-Capture#273 instrumentation).
     /// Fed by the lifecycle bridge's `didUpdate` passthrough; the
     /// admission policy never reads it — it exists for the physical
     /// benchmark profile.
@@ -650,7 +650,7 @@ public final class SharedARSessionController {
     }
 
     /// Mesh anchor add/update/remove notifications for bounded lifecycle
-    /// diagnostics (#268). Non-mesh anchors are filtered out.
+    /// diagnostics (legacy bolph71656-ai/HTDT-Capture#268). Non-mesh anchors are filtered out.
     public var meshAnchorLifecycleHandler: (
         @MainActor (
             MeshAnchorLifecycleKind,
@@ -662,7 +662,7 @@ public final class SharedARSessionController {
         set { sessionDelegateBridge.meshAnchorHandler = newValue }
     }
 
-    /// Reference-object anchor add/update/remove callbacks (#268) from
+    /// Reference-object anchor add/update/remove callbacks (legacy bolph71656-ai/HTDT-Capture#268) from
     /// the single shared session delegate — never a second delegate.
     /// Anchors arrive unfiltered so the host can read the matched
     /// `referenceObject` name, pose transform, and `isTracked`.
@@ -678,7 +678,7 @@ public final class SharedARSessionController {
     }
 
     /// Installs reference-object detection/tracking sets on the live
-    /// `ARWorldTrackingConfiguration` and re-runs the session (#268).
+    /// `ARWorldTrackingConfiguration` and re-runs the session (legacy bolph71656-ai/HTDT-Capture#268).
     ///
     /// The result is always honest about what the running
     /// configuration adopted: `trackingObjects` is only reachable on
@@ -786,7 +786,7 @@ public final class SharedARSessionController {
         )
     }
 
-    /// RoomPlan coaching/instruction observations (#260). Installed as
+    /// RoomPlan coaching/instruction observations (legacy bolph71656-ai/HTDT-Capture#260). Installed as
     /// `roomCaptureSession.delegate` when RoomPlan runs; invoked from the
     /// framework's delegate queue (nonisolated), so hop to MainActor
     /// inside the handler if needed.
@@ -835,7 +835,7 @@ public final class SharedARSessionController {
     }
 
     /// The bounded frame-interval distribution observed so far this
-    /// capture (#273 physical-benchmark metric).
+    /// capture (legacy bolph71656-ai/HTDT-Capture#273 physical-benchmark metric).
     public func frameCadenceSummary() -> ARFrameCadenceSummary {
         frameCadenceTracker.summary()
     }
@@ -880,7 +880,7 @@ public final class SharedARSessionController {
             return
         }
         liveRoomCaptureViewMountObserved = true
-        // #269: bind the layer that displays the ARFrame so iOS 27's
+        // legacy bolph71656-ai/HTDT-Capture#269: bind the layer that displays the ARFrame so iOS 27's
         // `viewRotationAngle` becomes a live rotation authority for the
         // segmentation display-transform path.
         if #available(iOS 27, *) {
@@ -1367,7 +1367,7 @@ public final class SharedARSessionController {
     /// anchor bound.
     public static let maximumTargetedObservationWindowMeters = 0.55
 
-    /// Bounded observation for the targeted-object pass (#250). The
+    /// Bounded observation for the targeted-object pass (legacy bolph71656-ai/HTDT-Capture#250). The
     /// operator aims at one small item and orbits it; instead of the
     /// room-scan crop + foreground-component heuristics this sampler
     /// keeps only the depth points inside a tight 3D window around the
@@ -1537,7 +1537,7 @@ public final class SharedARSessionController {
         return Double(rim.count) / Double(points.count)
     }
 
-    /// Result of a mask-gated targeted observation (#269).
+    /// Result of a mask-gated targeted observation (legacy bolph71656-ai/HTDT-Capture#269).
     public struct MaskedTargetedObservationResult: Sendable {
         /// The observation to feed `DerivedShapeTemporalFusionTracker`.
         public let observation: DerivedShapeObservation
@@ -1565,7 +1565,7 @@ public final class SharedARSessionController {
         }
     }
 
-    /// Mask-gated targeted observation for the #269 segmentation path:
+    /// Mask-gated targeted observation for the legacy bolph71656-ai/HTDT-Capture#269 segmentation path:
     /// identical window/plane/rim guards to
     /// `liveTargetedShapeObservation`, but the depth evidence is
     /// limited to samples whose source-image position falls inside the
@@ -2012,7 +2012,7 @@ public final class SharedARSessionController {
     }
 
     /// Full 3D camera orientation for measurement-point direction
-    /// authority (issue #271): forward is the -Z camera column, up is
+    /// authority (issue bolph71656-ai/HTDT-Capture#271): forward is the -Z camera column, up is
     /// the +Y column, both expressed in world space without flattening.
     public func snapshotCameraOrientation(
         depthSelection: FrameDepthSelection = .discrete
@@ -2184,7 +2184,7 @@ public final class SharedARSessionController {
     }
 
     /// Bracketed monotonic↔UTC correlation sample for the given capture
-    /// boundary (#200), corrected for ARFrame age (#206).
+    /// boundary (legacy bolph71656-ai/HTDT-Capture#200), corrected for ARFrame age (legacy bolph71656-ai/HTDT-Capture#206).
     ///
     /// The `boundary` chooses the persisted `method` label:
     /// `.sessionStart` is taken from the first AR frame the shared
@@ -2279,7 +2279,7 @@ public final class SharedARSessionController {
     }
 
     /// Bounded usability assessment of the current camera frame
-    /// (#274): samples the captured image's luma statistics on the
+    /// (legacy bolph71656-ai/HTDT-Capture#274): samples the captured image's luma statistics on the
     /// fixed probe grid and pairs them with the frame's EXIF exposure
     /// duration and live tracking state. Returns nil while no frame is
     /// available; a nil result means "usability unknown", never a pass.
@@ -2605,7 +2605,7 @@ public final class SharedARSessionController {
         voxelSizeMeters: Double,
         maxPoints: Int,
         minimumPointCount: Int = 8,
-        // #269: when set, replaces the default
+        // legacy bolph71656-ai/HTDT-Capture#269: when set, replaces the default
         // `live-scene-depth:<ts>:` stem so mask-gated evidence carries
         // its producing observation's id.
         evidenceRefStem: String? = nil
@@ -3361,7 +3361,7 @@ private struct LiveDerivedVoxelKey: Hashable {
 
 }
 
-/// Target-aware annotation placement (#214/#246). The probe classifies
+/// Target-aware annotation placement (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246). The probe classifies
 /// what the camera's center ray is hitting — existing/estimated plane,
 /// live ARMesh triangle, or a persisted RoomPlan object — so the
 /// reticle can name the target class before capture; the capture
@@ -3374,9 +3374,9 @@ extension SharedARSessionController {
         public let target: PlacementProbeTarget
         public let positionWorld: Float3
         public let hitDistanceMeters: Double?
-        /// Mesh hit authority (#246): exact anchor ID + hit position.
+        /// Mesh hit authority (legacy bolph71656-ai/HTDT-Capture#246): exact anchor ID + hit position.
         public let meshAnchorID: UUID?
-        /// RoomPlan binding authority (#246): exact persisted object ID.
+        /// RoomPlan binding authority (legacy bolph71656-ai/HTDT-Capture#246): exact persisted object ID.
         public let roomPlanObjectID: String?
         public let roomPlanObjectCategory: String?
         /// Plane-raycast hit provenance (method `.raycast`).
@@ -3429,7 +3429,7 @@ extension SharedARSessionController {
         )
     }
 
-    /// Camera yaw in degrees for the live heading arrow (#214): 0 = -Z
+    /// Camera yaw in degrees for the live heading arrow (legacy bolph71656-ai/HTDT-Capture#214): 0 = -Z
     /// world forward, +90 = +X — the same convention as
     /// `snapshotHorizontalCameraHeading`. nil while no frame exists.
     public func currentCameraHeadingDegrees() -> Float? {
@@ -3444,7 +3444,7 @@ extension SharedARSessionController {
         return atan2(x, -z) * 180 / .pi
     }
 
-    /// Live center-target probe (#214): classifies the strongest hit
+    /// Live center-target probe (legacy bolph71656-ai/HTDT-Capture#214): classifies the strongest hit
     /// for the current frame's center ray across planes, live mesh and
     /// supplied RoomPlan objects. Cheap and side-effect-free; intended
     /// for repeated polling while the reticle is visible.
@@ -3502,7 +3502,7 @@ extension SharedARSessionController {
 
     /// Captures a targeted placement for the given preference. An
     /// explicit mesh/object/plane request never falls through to a
-    /// different target class (#246): it returns a `TargetedPlacement
+    /// different target class (legacy bolph71656-ai/HTDT-Capture#246): it returns a `TargetedPlacement
     /// Capture` for exactly that class or throws `raycastMiss`.
     /// `.automatic` resolves the nearest of all candidates with the
     /// deterministic specificity order for ties.
@@ -3610,7 +3610,7 @@ extension SharedARSessionController {
 
     /// Decodes the persisted processed `CapturedRoom` payload into
     /// bindable objects/surfaces for `roomplan_binding` placement
-    /// (#246). iOS-only because `CapturedRoom` decoding is a RoomPlan
+    /// (legacy bolph71656-ai/HTDT-Capture#246). iOS-only because `CapturedRoom` decoding is a RoomPlan
     /// API. `nonisolated`: pure data decoding — callers run it off
     /// the main actor while loading Review context.
     public nonisolated static func roomPlanBindableObjects(
@@ -3678,7 +3678,7 @@ extension SharedARSessionController {
     }
 
     /// Ray-vs-live-ARMesh hit over the session's current mesh anchors
-    /// (#246). Uses the same vertex/index readers as the derived-shape
+    /// (legacy bolph71656-ai/HTDT-Capture#246). Uses the same vertex/index readers as the derived-shape
     /// pipeline; the hit returns the exact anchor ID for
     /// `mesh_hit_test` provenance.
     private func liveMeshRaycastHit(

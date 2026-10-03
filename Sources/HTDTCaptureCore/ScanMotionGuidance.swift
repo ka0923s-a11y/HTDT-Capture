@@ -32,7 +32,7 @@ public enum ScanTranslationDirection: String, Sendable, Equatable, CaseIterable 
 public extension ScanMotionGuidanceAction {
     /// Whether the action asks the operator to physically move (walk).
     /// In-place actions — rotate, tilt, hold, tracking recovery — never
-    /// carry movement-safety wording (#313).
+    /// carry movement-safety wording (legacy bolph71656-ai/HTDT-Capture#313).
     var requiresPhysicalTranslation: Bool {
         switch self {
         case .translate, .approach, .retreat, .orbit,
@@ -45,7 +45,7 @@ public extension ScanMotionGuidanceAction {
 }
 
 /// How much physical translation the operator can currently make
-/// (#257 stationary-only, #313 safety-constrained). Anything but
+/// (legacy bolph71656-ai/HTDT-Capture#257 stationary-only, legacy bolph71656-ai/HTDT-Capture#313 safety-constrained). Anything but
 /// `unrestricted` suppresses movement guidance: the app never claims to
 /// know the operator's path is safe, so a constrained mode removes
 /// translation prompts entirely rather than coaching risky movement.
@@ -66,7 +66,7 @@ public enum ScanMovementCapability: String, Codable, Sendable, Equatable {
     }
 }
 
-/// Why guidance reported `isComplete` (issue #296). The boolean alone
+/// Why guidance reported `isComplete` (issue bolph71656-ai/HTDT-Capture#296). The boolean alone
 /// conflated "every retained weak/unknown region was genuinely
 /// observed" with termination by retry-budget exhaustion or an
 /// operator-declared movement constraint — three semantically different
@@ -108,13 +108,13 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
     public let maximumSpatialGuidanceAttempts: Int
     /// Retained weak regions still eligible for guidance, counted
     /// across the whole retained map — not just the live display
-    /// window (#347). A weak region the operator walked away from
+    /// window (legacy bolph71656-ai/HTDT-Capture#347). A weak region the operator walked away from
     /// stays unresolved here until it is re-observed or its guidance
     /// attempt budget is exhausted.
     public let actionableWeakRegionCount: Int
     public let saturatedWeakRegionCount: Int
     /// Weak, undeclared retained regions outside the current display
-    /// viewport (#347). Nonzero means unresolved coverage exists
+    /// viewport (legacy bolph71656-ai/HTDT-Capture#347). Nonzero means unresolved coverage exists
     /// beyond what the operator is looking at right now.
     public let remoteWeakRegionCount: Int
     /// Weak regions still unresolved because the operator declared
@@ -122,7 +122,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
     public let operatorDeclaredWeakRegionCount: Int
     public let directionCoverageFraction: Double
     public let isComplete: Bool
-    /// Typed reason behind `isComplete` (issue #296). `.incomplete`
+    /// Typed reason behind `isComplete` (issue bolph71656-ai/HTDT-Capture#296). `.incomplete`
     /// exactly when `isComplete` is false, so callers that render a
     /// completion claim can always demand the source instead of
     /// guessing from the boolean.
@@ -158,7 +158,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
 
     /// Weak regions still unresolved when completion fired — the count
     /// the UI keeps visible when the source was budget/constraint
-    /// rather than observation (issue #296).
+    /// rather than observation (issue bolph71656-ai/HTDT-Capture#296).
     public var unresolvedWeakRegionCount: Int {
         actionableWeakRegionCount + saturatedWeakRegionCount
             + operatorDeclaredWeakRegionCount
@@ -301,7 +301,7 @@ public struct ScanMotionGuidance: Sendable, Equatable {
     }
 }
 
-/// Copy authority for scan-guidance prompts (#399): every string
+/// Copy authority for scan-guidance prompts (legacy bolph71656-ai/HTDT-Capture#399): every string
 /// resolves through `Localizable.strings` (English source strings are
 /// the keys), so the scan UI, VoiceOver readouts, and the rest of the
 /// app share one Apple-native localization mechanism. No language
@@ -323,7 +323,7 @@ public enum ScanMotionGuidanceCopy {
                 ? String(localized: "Capture the lower area.")
                 : String(localized: "Capture the upper area.")
 
-        // #313: every movement prompt is qualified with an explicit
+        // legacy bolph71656-ai/HTDT-Capture#313: every movement prompt is qualified with an explicit
         // path-check precondition. Guidance is advisory — the app does
         // not know the operator's path is safe — so wording must never
         // present walking backward or orbiting as a required or
@@ -372,7 +372,7 @@ public enum ScanMotionGuidanceCopy {
     }
 
     /// Short reminder shown while a prompt asks for physical
-    /// translation (#313). Returns nil for in-place actions, which
+    /// translation (legacy bolph71656-ai/HTDT-Capture#313). Returns nil for in-place actions, which
     /// need no movement-safety qualifier.
     public static func safetyNote(
         for guidance: ScanMotionGuidance
@@ -384,7 +384,7 @@ public enum ScanMotionGuidanceCopy {
     }
 
     /// First-use safety statement shown before scanning starts and kept
-    /// in the guidance help (#313). Deliberately plain: awareness, stop
+    /// in the guidance help (legacy bolph71656-ai/HTDT-Capture#313). Deliberately plain: awareness, stop
     /// before interacting, never walk backward following the screen.
     /// The app does not detect obstacles — this text never claims it
     /// does.
@@ -412,7 +412,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         .unrestricted
     private var completedSpatialGuidanceAttemptCount = 0
     /// Coverage cells the operator declared intentionally unresolved
-    /// (#257). Declared regions stay classified unresolved but stop
+    /// (legacy bolph71656-ai/HTDT-Capture#257). Declared regions stay classified unresolved but stop
     /// producing movement guidance and no longer count as actionable.
     private var declaredRegionKeys: Set<SpatialCoverageCellKey> = []
 
@@ -422,7 +422,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         self.configuration = configuration
     }
 
-    /// Replaces the operator-declared region set (#257). If the
+    /// Replaces the operator-declared region set (legacy bolph71656-ai/HTDT-Capture#257). If the
     /// currently selected guidance targets a freshly declared cell,
     /// it is dropped so the next `record` picks a different target
     /// instead of continuing to coach a region the operator cannot
@@ -572,7 +572,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         coverage: ScanCoverageSummary,
         spatialCoverage: SpatialScanCoverageSummary
     ) -> ScanGuidanceProgress {
-        // Weak-region accounting is global (#347): the live display
+        // Weak-region accounting is global (legacy bolph71656-ai/HTDT-Capture#347): the live display
         // window is a presentation bound, not a completeness bound,
         // so walking away from a weak region must never drop it from
         // the unresolved count or complete the spatial dimension.
@@ -614,7 +614,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }.count
         let isComplete = directionReady && spatialComplete
 
-        // Completion source precedence (issue #296): an operator-
+        // Completion source precedence (issue bolph71656-ai/HTDT-Capture#296): an operator-
         // declared movement constraint dominates — movement-dependent
         // guidance never ran. A spent global budget outranks per-region
         // retry saturation, retry saturation outranks an operator-
@@ -1024,7 +1024,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         )
     }
 
-    /// Local-first weak-region targeting (#347): regions inside the
+    /// Local-first weak-region targeting (legacy bolph71656-ai/HTDT-Capture#347): regions inside the
     /// live display window are preferred so the operator finishes
     /// nearby unresolved cells first; when none remain actionable
     /// locally, the nearest remote unresolved region becomes the

@@ -128,7 +128,7 @@ public struct SpatialRay: Sendable, Equatable {
 }
 
 /// Axis-aligned bounds used for mesh/object prefiltering and the
-/// advisory spatial-plausibility checks (#246/#247).
+/// advisory spatial-plausibility checks (legacy bolph71656-ai/HTDT-Capture#246/legacy bolph71656-ai/HTDT-Capture#247).
 public struct SpatialAxisBounds:
     Codable, Sendable, Equatable
 {

@@ -19,7 +19,7 @@ public enum PersistedCaptureInventoryError:
     /// Removing the derived export archive was refused because the
     /// canonical finalized copy could not be revalidated; deleting the
     /// archive would have stranded the revision's only local authority
-    /// (issue #251).
+    /// (issue bolph71656-ai/HTDT-Capture#251).
     case exportArchiveRemovalRequiresFinalizedCopy
 }
 
@@ -87,13 +87,13 @@ public struct PersistedCaptureRecord:
     public let exportArchive: URL?
     public let exportValidation: BundleValidationReport?
     /// Bytes retained on disk by the validated finalized directory at
-    /// scan time; nil when no finalized copy exists (issue #251).
+    /// scan time; nil when no finalized copy exists (issue bolph71656-ai/HTDT-Capture#251).
     public let finalizedByteCount: Int64?
     /// Bytes retained on disk by the validated export archive at scan
-    /// time; nil when no archive exists (issue #251).
+    /// time; nil when no archive exists (issue bolph71656-ai/HTDT-Capture#251).
     public let exportArchiveByteCount: Int64?
     /// The manifest-declared parent revision (`parent_revision_id`),
-    /// when the validated bundle declares one (issue #396). This is the
+    /// when the validated bundle declares one (issue bolph71656-ai/HTDT-Capture#396). This is the
     /// lineage edge the revision-fork graph is built from — bundle
     /// authority, never inferred from ordering or timestamps.
     public let parentRevisionID: CaptureRevisionID?
@@ -136,19 +136,19 @@ public struct PersistedCaptureRecord:
     /// copy. The scan only ever attaches an archive whose bundle digest
     /// proved identical to the finalized bundle, so such an archive is
     /// fully derived data that can be removed independently and
-    /// regenerated later (issue #251).
+    /// regenerated later (issue bolph71656-ai/HTDT-Capture#251).
     public var exportArchiveIsDerivedCopy: Bool {
         finalizedValidation != nil && exportArchive != nil
     }
 
     /// Total local bytes attributable to this revision: the finalized
-    /// bundle plus the export archive when both exist (issue #251).
+    /// bundle plus the export archive when both exist (issue bolph71656-ai/HTDT-Capture#251).
     public var retainedByteCount: Int64 {
         (finalizedByteCount ?? 0) + (exportArchiveByteCount ?? 0)
     }
 
     /// Manifest-declared frame preview paths in stable frame-id order
-    /// (issue #219): `evidence/frames/<id>.preview.heic` entries the
+    /// (issue bolph71656-ai/HTDT-Capture#219): `evidence/frames/<id>.preview.heic` entries the
     /// validated manifest carries — from the finalized bundle's report
     /// when present, otherwise the export archive's (their digests
     /// matched at scan time). Only declared previews are candidates —
@@ -167,7 +167,7 @@ public struct PersistedCaptureRecord:
     }
 
     /// A representative preview file for library thumbnails (issue
-    /// #219): the first manifest-declared preview present under the
+    /// legacy bolph71656-ai/HTDT-Capture#219): the first manifest-declared preview present under the
     /// validated finalized directory. nil when no preview payload was
     /// retained or only an export archive remains.
     public func representativePreviewFile() -> URL? {
@@ -189,7 +189,7 @@ public struct PersistedCaptureRecord:
     }
 
     /// Representative preview bytes for records whose only copy is
-    /// the validated export archive (issue #219): archive entries
+    /// the validated export archive (issue bolph71656-ai/HTDT-Capture#219): archive entries
     /// are stored uncompressed, so the preview payload is read out
     /// of the single entry's local header without decompressing the
     /// package. nil when the finalized directory exists (use
@@ -269,7 +269,7 @@ public struct PersistedCaptureRemainingArtifact:
 }
 
 /// One retained file inside an inspected working-root orphan
-/// (issue #224), reported with its size so cleanup decisions carry
+/// (issue bolph71656-ai/HTDT-Capture#224), reported with its size so cleanup decisions carry
 /// concrete evidence.
 public struct PersistedCaptureOrphanEntry:
     Sendable,
@@ -286,7 +286,7 @@ public struct PersistedCaptureOrphanEntry:
 }
 
 /// Bounded listing of what an abandoned working revision or stale
-/// writer file still retains on disk (issue #224). Purely observational
+/// writer file still retains on disk (issue bolph71656-ai/HTDT-Capture#224). Purely observational
 /// — it never resurrects the revision as resumable authority.
 public struct PersistedCaptureOrphanInspection:
     Sendable,
@@ -354,7 +354,7 @@ public struct PersistedCaptureInventoryResult:
     public let orphanedWorkingArtifacts:
         [PersistedCaptureWorkingOrphan]
     /// `working/<uuid>` revisions whose durable phase marker proves an
-    /// accepted End boundary (issue #297). They reopen into a spatially
+    /// accepted End boundary (issue bolph71656-ai/HTDT-Capture#297). They reopen into a spatially
     /// sealed Review — never into live capture.
     public let recoverableDrafts: [RecoverableWorkingRevision]
     public let enumerationFailures: [String]
@@ -386,7 +386,7 @@ public struct PersistedCaptureInventoryResult:
     /// Total bytes retained by every inventoried artifact: validated
     /// finalized bundles, validated export archives (counted separately
     /// so storage UX can show the duplicate-derived share), and
-    /// non-resumable working orphans (issue #251). Quarantined items
+    /// non-resumable working orphans (issue bolph71656-ai/HTDT-Capture#251). Quarantined items
     /// are not sized here; each carries its own deletion path.
     public var totalRetainedBytes: Int64 {
         captures.reduce(0) { $0 + $1.retainedByteCount }
@@ -751,7 +751,7 @@ public struct PersistedCaptureInventory: Sendable {
                         )
                         continue
                     }
-                    // Issue #297: a `working/<uuid>` directory carrying a
+                    // Issue bolph71656-ai/HTDT-Capture#297: a `working/<uuid>` directory carrying a
                     // durable end-accepted phase marker is a recoverable
                     // draft, not an abandoned revision. The marker is
                     // the only ownership proof — absent, undecodable,
@@ -938,7 +938,7 @@ public struct PersistedCaptureInventory: Sendable {
     }
 
     /// Removes only the derived export archive for one revision while
-    /// retaining the canonical finalized bundle (issue #251). Refused
+    /// retaining the canonical finalized bundle (issue bolph71656-ai/HTDT-Capture#251). Refused
     /// when the finalized directory cannot be revalidated as belonging
     /// to `captureRevisionID`: without proven canonical bytes on disk,
     /// deleting the last remaining copy would silently destroy the
@@ -973,7 +973,7 @@ public struct PersistedCaptureInventory: Sendable {
         return true
     }
 
-    /// Bounded inspection of a working-root orphan (issue #224):
+    /// Bounded inspection of a working-root orphan (issue bolph71656-ai/HTDT-Capture#224):
     /// enumerates the retained payload paths and byte sizes so the
     /// operator can see what the failed/abandoned revision captured
     /// before deciding to export diagnostics or discard. Paths are
@@ -1478,7 +1478,7 @@ public struct PersistedCaptureInventory: Sendable {
 /// (`Application Support/HTDTCapture`). Two independent controls are
 /// applied at creation and verified on write:
 ///
-/// - **Data Protection** (#166): every app-owned capture root and every
+/// - **Data Protection** (legacy bolph71656-ai/HTDT-Capture#166): every app-owned capture root and every
 ///   working revision directory carries
 ///   `.completeUntilFirstUserAuthentication`. iOS propagates a
 ///   directory's default protection class to children created inside
@@ -1488,7 +1488,7 @@ public struct PersistedCaptureInventory: Sendable {
 ///   permits reads/writes after the first unlock while the device is
 ///   locked, which an active capture session requires; `.complete`
 ///   would break an in-flight scan on device lock.
-/// - **Backup exclusion** (#136): only the transient `working/` root
+/// - **Backup exclusion** (legacy bolph71656-ai/HTDT-Capture#136): only the transient `working/` root
 ///   and each `working/<uuid>` revision are excluded. Finalized
 ///   revisions and exported `.htdtcapture` archives are user-facing
 ///   artifacts and remain eligible for the platform's user-managed
@@ -1509,7 +1509,7 @@ public enum CaptureStoragePolicy {
     /// `working/`, `finalized/`, and `exports/` children are created if
     /// missing, the protection class is applied to each, `working/`
     /// alone is excluded from backup, and `finalized/`/`exports/` are
-    /// normalized to the configured finalized-backup policy (#305).
+    /// normalized to the configured finalized-backup policy (legacy bolph71656-ai/HTDT-Capture#305).
     /// Returns a deterministic list of per-item failures; an empty
     /// list means every reachable item was verified.
     @discardableResult
@@ -1581,7 +1581,7 @@ public enum CaptureStoragePolicy {
     }
 
     /// Applies the operator-configured finalized backup policy
-    /// (#305): `finalized/` and `exports/` and each of their direct
+    /// (legacy bolph71656-ai/HTDT-Capture#305): `finalized/` and `exports/` and each of their direct
     /// children are explicitly marked excluded or not excluded.
     ///
     /// The explicit write matters in both directions: promotion moves
@@ -1655,7 +1655,7 @@ public enum CaptureStoragePolicy {
     }
 
     /// Applies the finalized backup policy to one newly promoted
-    /// `finalized/<uuid>` revision directory (#305). Must be called
+    /// `finalized/<uuid>` revision directory (legacy bolph71656-ai/HTDT-Capture#305). Must be called
     /// after promotion: the atomic move preserves the
     /// `isExcludedFromBackup` attribute the working revision carried,
     /// so without this a finalized directory silently keeps whatever
@@ -1671,7 +1671,7 @@ public enum CaptureStoragePolicy {
     }
 
     /// Applies the finalized backup policy to one export archive
-    /// (#305); same policy as its finalized sibling since both are
+    /// (legacy bolph71656-ai/HTDT-Capture#305); same policy as its finalized sibling since both are
     /// user-facing retained artifacts.
     public static func applyExportArchivePolicy(
         archiveURL: URL,
@@ -1701,7 +1701,7 @@ public enum CaptureStoragePolicy {
     }
 
     /// Writes `isExcludedFromBackup` on `url` in either direction and
-    /// verifies the value persisted (#305): an explicit `false` is
+    /// verifies the value persisted (legacy bolph71656-ai/HTDT-Capture#305): an explicit `false` is
     /// required to clear an exclusion inherited through promotion or
     /// an earlier policy setting.
     ///

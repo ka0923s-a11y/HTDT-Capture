@@ -5,7 +5,7 @@ import HTDTCaptureCore
 import UIKit
 #endif
 
-/// Shared visual design tokens for HTDT Capture (#361/#364).
+/// Shared visual design tokens for HTDT Capture (legacy bolph71656-ai/HTDT-Capture#361/legacy bolph71656-ai/HTDT-Capture#364).
 ///
 /// A small presentation layer over native SwiftUI components — not a
 /// custom chrome framework. Every role maps to system typography,
@@ -13,7 +13,7 @@ import UIKit
 /// appearance, and accessibility stay platform-managed.
 public enum CaptureDesign {
 
-    /// 8-point rhythm (#364 §2.5).
+    /// 8-point rhythm (legacy bolph71656-ai/HTDT-Capture#364 §2.5).
     public enum Spacing {
         /// icon↔text micro gap
         public static let micro: CGFloat = 4
@@ -29,7 +29,7 @@ public enum CaptureDesign {
         public static let hero: CGFloat = 32
     }
 
-    /// Semantic typography roles (#361 §5, #364 §2.4). Use these
+    /// Semantic typography roles (legacy bolph71656-ai/HTDT-Capture#361 §5, legacy bolph71656-ai/HTDT-Capture#364 §2.4). Use these
     /// instead of one-off `.font(...)` combinations.
     public enum Typography {
         /// Task-level headline under a navigation title.
@@ -52,7 +52,7 @@ public enum CaptureDesign {
 }
 
 public extension CaptureColorRole {
-    /// The system color backing each semantic role (#364 §14).
+    /// The system color backing each semantic role (legacy bolph71656-ai/HTDT-Capture#364 §14).
     var color: Color {
         switch self {
         case .accent: return .accentColor
@@ -74,7 +74,7 @@ public extension CaptureSemanticStatus {
     }
 }
 
-/// Compact status presentation (#361 §2): symbol + short text +
+/// Compact status presentation (legacy bolph71656-ai/HTDT-Capture#361 §2): symbol + short text +
 /// semantic color, so no state is ever conveyed by color alone.
 public struct CaptureStatusView: View {
     public let status: CaptureSemanticStatus
@@ -116,8 +116,8 @@ public struct CaptureStatusContent: View {
     }
 }
 
-/// Inline advisory / warning / blocking notice surface (#361 §4,
-/// #364 §12): tinted background, icon, title, message and an optional
+/// Inline advisory / warning / blocking notice surface (legacy bolph71656-ai/HTDT-Capture#361 §4,
+/// legacy bolph71656-ai/HTDT-Capture#364 §12): tinted background, icon, title, message and an optional
 /// recovery action. Used instead of raw colored paragraphs.
 public struct CaptureNotice: View {
     public let status: CaptureSemanticStatus
@@ -181,7 +181,7 @@ public struct CaptureNotice: View {
     }
 }
 
-/// Designed first-use / empty / error state (#361 §7, #364 §3.1):
+/// Designed first-use / empty / error state (legacy bolph71656-ai/HTDT-Capture#361 §7, legacy bolph71656-ai/HTDT-Capture#364 §3.1):
 /// answers what happened, whether it is a problem, and what the
 /// operator can do next.
 public struct CaptureEmptyState: View {
@@ -247,7 +247,7 @@ public struct CaptureEmptyState: View {
     }
 }
 
-/// One consistent treatment for technical provenance (#361 §6):
+/// One consistent treatment for technical provenance (legacy bolph71656-ai/HTDT-Capture#361 §6):
 /// UUIDs, hashes, payload paths, schema tokens — monospaced,
 /// secondary, selectable, never at primary-task hierarchy.
 public struct CaptureTechnicalDetail: View {
@@ -286,7 +286,7 @@ public struct CaptureTechnicalText: View {
     }
 }
 
-/// Page/task header (#364 L0–L1): the current task statement with an
+/// Page/task header (legacy bolph71656-ai/HTDT-Capture#364 L0–L1): the current task statement with an
 /// optional trailing semantic status.
 public struct CaptureTaskHeader: View {
     private let titleText: Text
@@ -342,7 +342,7 @@ public struct CaptureTaskHeader: View {
 }
 
 public extension View {
-    /// The standard prominent primary-task action treatment (#361 §3):
+    /// The standard prominent primary-task action treatment (legacy bolph71656-ai/HTDT-Capture#361 §3):
     /// one per screen/task — borderedProminent + large control size.
     @ViewBuilder
     func capturePrimaryAction() -> some View {
@@ -358,12 +358,12 @@ public extension View {
 }
 
 /// Whether the current layout should present the adaptive two-pane
-/// composition (#362) — delegates to the pure
+/// composition (legacy bolph71656-ai/HTDT-Capture#362) — delegates to the pure
 /// `CaptureAdaptiveLayoutDecision` in Core so the rule stays
 /// unit-testable and identical across platforms.
 public typealias CaptureAdaptiveLayout = CaptureAdaptiveLayoutDecision
 
-/// Adaptive two-pane container (#362): on regular width the leading
+/// Adaptive two-pane container (legacy bolph71656-ai/HTDT-Capture#362): on regular width the leading
 /// and trailing content render side-by-side in their own scrolling
 /// columns; on compact width they compose back into one list. Content
 /// stays the same in both modes — only the panes change — so workflow

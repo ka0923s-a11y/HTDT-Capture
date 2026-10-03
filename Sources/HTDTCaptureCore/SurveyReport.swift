@@ -1,6 +1,6 @@
 import Foundation
 
-/// Language for the derived field-survey report (issue #318).
+/// Language for the derived field-survey report (issue bolph71656-ai/HTDT-Capture#318).
 public enum SurveyReportLanguage:
     String,
     Sendable,
@@ -15,7 +15,7 @@ public enum SurveyReportLanguage:
     public var localeCode: String { rawValue }
 
     /// The UI default — follows the app's resolved localization
-    /// (#399): the same `Localizable.strings` authority that decides
+    /// (legacy bolph71656-ai/HTDT-Capture#399): the same `Localizable.strings` authority that decides
     /// every other string, never raw device preferences.
     public static var preferred: SurveyReportLanguage {
         Bundle.main.preferredLocalizations
@@ -140,7 +140,7 @@ public enum SurveyReportEvidenceEnumerator {
 // MARK: - Plan compositing
 
 /// Builds the plan model the report renders: RoomPlan walls/openings
-/// plus annotation markers traced to exact entity records (issue #318's
+/// plus annotation markers traced to exact entity records (issue bolph71656-ai/HTDT-Capture#318's
 /// "plan symbols traceable to source records" requirement — every
 /// annotation marker is labeled with the entity's label/role and its
 /// id is recoverable from the entities table).
@@ -861,7 +861,7 @@ public enum SurveyReportBuilder {
         return html + "</ul>"
     }
 
-    /// Operator field notes (#459): the notes recorded during the
+    /// Operator field notes (legacy bolph71656-ai/HTDT-Capture#459): the notes recorded during the
     /// scan reach the report — they were previously persisted in the
     /// bundle but never rendered into the export the receiving side
     /// reads.
@@ -1064,7 +1064,7 @@ public enum SurveyReportBuilder {
 /// `<captureRoot>/derived-exports/<revision>/` alongside derived 3D
 /// exports: `<stem>.html`, `<stem>-plan.svg` (when a plan exists), and
 /// `<stem>.provenance.json` binding the document to the exact capture
-/// revision and bundle digest (issue #318).
+/// revision and bundle digest (issue bolph71656-ai/HTDT-Capture#318).
 public enum SurveyReportRunner {
     public struct Result: Sendable, Equatable {
         public let reportFileURL: URL
