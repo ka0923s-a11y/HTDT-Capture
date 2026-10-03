@@ -216,7 +216,7 @@ public struct ReviewPlanSurface: View {
         .sheet(isPresented: $legendShown) {
             legendSheet
         }
-        .confirmationDialog(
+        .alert(
             "Which item?",
             isPresented: Binding(
                 get: { disambiguation != nil },
@@ -224,20 +224,14 @@ public struct ReviewPlanSurface: View {
                     if !shown { disambiguation = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: disambiguation
         ) { candidates in
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare trailing Cancel never
-            // appears.
-            Group {
-                ForEach(candidates, id: \.identifier) { marker in
-                    Button(markerTitle(marker)) {
-                        selection = marker
-                    }
+            ForEach(candidates, id: \.identifier) { marker in
+                Button(markerTitle(marker)) {
+                    selection = marker
                 }
-                Button("Cancel", role: .cancel) {}
             }
+            Button("Cancel", role: .cancel) {}
         }
     }
 

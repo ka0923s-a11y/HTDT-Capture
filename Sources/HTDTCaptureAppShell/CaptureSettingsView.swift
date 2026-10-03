@@ -57,20 +57,18 @@ public struct CaptureSettingsView: View {
         .navigationTitle(
             String(localized: "Settings")
         )
-        .confirmationDialog(
+        // Alert, not confirmationDialog: when the dialog anchors
+        // as a popover (iOS 26+), the anchored presentation drops
+        // every action child after the first — an alert's centered
+        // modal renders every button.
+        .alert(
             "Clear equipment catalog cache?",
-            isPresented: $confirmingCatalogClear,
-            titleVisibility: .visible
+            isPresented: $confirmingCatalogClear
         ) {
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button("Clear cache", role: .destructive) {
-                    onClearEquipmentCatalog()
-                }
-                Button("Cancel", role: .cancel) {}
+            Button("Clear cache", role: .destructive) {
+                onClearEquipmentCatalog()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text(
                 "Removes the imported catalog from this device. Committed captures keep the exact equipment tuples they recorded."

@@ -10572,6 +10572,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return draft
         }
 
+        // A finalized workspace lives in the store index, not the
+        // drafts — reopen it so the Deliver/Share section stays
+        // reachable instead of shadowing it with a fresh draft.
+        // Newest first: a finalized follow-up supersedes earlier
+        // returns for the same mission.
+        let linkedContributionIDs = Set(record.fieldReturnIDs)
+        if let finalized = try? HTDTFieldReturnStore(captureRoot: root)
+            .load().workspaces
+            .filter({
+                $0.isFinalized
+                    && ($0.missionRecordID == missionRecordID
+                        || linkedContributionIDs.contains(
+                            $0.contributionID.description
+                        ))
+            })
+            .sorted(by: {
+                ($0.finalizedAtUTC ?? "") > ($1.finalizedAtUTC ?? "")
+            })
+            .first
+        {
+            return finalized
+        }
+
         var workspace = HTDTFieldReturnWorkspace(
             missionRecordID: record.recordID,
             missionID: record.missionID,

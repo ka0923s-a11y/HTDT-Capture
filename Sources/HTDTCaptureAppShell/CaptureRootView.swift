@@ -2231,23 +2231,21 @@ public struct CaptureRootView: View {
                         .background(.bar)
                     }
                 }
-                .confirmationDialog(
+                // Alert, not confirmationDialog: the anchored
+                // popover presentation (iOS 26+) drops every
+                // action child after the first — an alert's
+                // centered modal renders every button.
+                .alert(
                     "Discard capture?",
-                    isPresented: $confirmingDiscard,
-                    titleVisibility: .visible
+                    isPresented: $confirmingDiscard
                 ) {
-                    // One action-producing child — iOS 26 renders
-                    // only the first child, so a bare second
-                    // Button's Cancel never appears.
-                    Group {
-                        Button(
-                            "Discard capture",
-                            role: .destructive
-                        ) {
-                            actions.discardActiveCapture()
-                        }
-                        Button("Cancel", role: .cancel) {}
+                    Button(
+                        "Discard capture",
+                        role: .destructive
+                    ) {
+                        actions.discardActiveCapture()
                     }
+                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(
                         "Stops the capture and permanently removes the working revision. Finalized captures are never touched."
@@ -2256,7 +2254,7 @@ public struct CaptureRootView: View {
                 // #437: the destructive steps on the failed surface
                 // confirm before removing retained data — optionally
                 // continuing into capture setup.
-                .confirmationDialog(
+                .alert(
                     "Discard the failed capture's data?",
                     isPresented: Binding(
                         get: { pendingFailedDiscard != nil },
@@ -2266,31 +2264,25 @@ public struct CaptureRootView: View {
                             }
                         }
                     ),
-                    titleVisibility: .visible,
                     presenting: pendingFailedDiscard
                 ) { intent in
-                    // One action-producing child — iOS 26 renders
-                    // only the first child, so a Cancel written
-                    // after the `switch` never appears.
-                    Group {
-                        switch intent {
-                        case .discardAndStartNew:
-                            Button(
-                                "Discard and start a new capture",
-                                role: .destructive
-                            ) {
-                                actions.discardFailedAndStartNew()
-                            }
-                        case .discardOnly:
-                            Button(
-                                "Discard the failed capture",
-                                role: .destructive
-                            ) {
-                                actions.resetCapture()
-                            }
+                    switch intent {
+                    case .discardAndStartNew:
+                        Button(
+                            "Discard and start a new capture",
+                            role: .destructive
+                        ) {
+                            actions.discardFailedAndStartNew()
                         }
-                        Button("Cancel", role: .cancel) {}
+                    case .discardOnly:
+                        Button(
+                            "Discard the failed capture",
+                            role: .destructive
+                        ) {
+                            actions.resetCapture()
+                        }
                     }
+                    Button("Cancel", role: .cancel) {}
                 } message: { _ in
                     Text(
                         "Permanently removes the data this capture kept. Finalized captures are never touched."
@@ -2467,7 +2459,7 @@ public struct CaptureRootView: View {
                         actions: actions
                     )
                 }
-                .confirmationDialog(
+                .alert(
                     "Delete local capture?",
                     isPresented: Binding(
                         get: { pendingDeletion != nil },
@@ -2477,13 +2469,8 @@ public struct CaptureRootView: View {
                             }
                         }
                     ),
-                    titleVisibility: .visible,
                     presenting: pendingDeletion
                 ) { pending in
-                    // Each branch carries its own Cancel — iOS 26
-                    // renders only the first action-producing child,
-                    // so a button written after the `if` never
-                    // appears.
                     if pending.blockers.isEmpty {
                         Button(
                             pending.archiveOnly
@@ -2502,9 +2489,6 @@ public struct CaptureRootView: View {
                         Button("Cancel", role: .cancel) {}
                     }
                 } message: { pending in
-                    // iOS 26 renders only the first `message:`
-                    // child — the blocker list and its guidance must
-                    // fold into one `Text` to reach the operator.
                     if pending.blockers.isEmpty {
                         Text(deletionExplanationText(for: pending))
                     } else {
@@ -2636,7 +2620,7 @@ public struct CaptureRootView: View {
         // trigger can live inside a pushed diagnostics detail, and a
         // dialog attached to the list behind it would stay hidden
         // until the operator navigates back.
-        .confirmationDialog(
+        .alert(
             pendingRemediation
                 == .startReplacementRevision
                 ? "Start a replacement capture?"
@@ -2648,12 +2632,8 @@ public struct CaptureRootView: View {
                         pendingRemediation = nil
                     }
                 }
-            ),
-            titleVisibility: .visible
+            )
         ) {
-            // Each branch carries its own Cancel — iOS 26 renders
-            // only the first action-producing child, so a button
-            // written after the `if` never appears.
             if pendingRemediation
                 == .startReplacementRevision
             {
@@ -2959,20 +2939,14 @@ public struct CaptureRootView: View {
                         .foregroundStyle(.secondary)
                 }
                 recoveryStepsView(plan)
-                    .confirmationDialog(
+                    .alert(
                         "Export includes visual evidence?",
-                        isPresented: $confirmingExport,
-                        titleVisibility: .visible
+                        isPresented: $confirmingExport
                     ) {
-                        // One action-producing child — iOS 26
-                        // renders only the first child, so a bare
-                        // second Button's Cancel never appears.
-                        Group {
-                            Button("Prepare .htdtcapture") {
-                                actions.prepareExport()
-                            }
-                            Button("Cancel", role: .cancel) {}
+                        Button("Prepare .htdtcapture") {
+                            actions.prepareExport()
                         }
+                        Button("Cancel", role: .cancel) {}
                     } message: {
                         Text(
                             captureCountPhrase(
@@ -3025,20 +2999,14 @@ public struct CaptureRootView: View {
                 }
                 .capturePrimaryAction()
                 .disabled(hostBusy)
-                .confirmationDialog(
+                .alert(
                     "Export includes visual evidence?",
-                    isPresented: $confirmingExport,
-                    titleVisibility: .visible
+                    isPresented: $confirmingExport
                 ) {
-                    // One action-producing child — iOS 26 renders
-                    // only the first child, so a bare second
-                    // Button's Cancel never appears.
-                    Group {
-                        Button("Prepare .htdtcapture") {
-                            actions.prepareExport()
-                        }
-                        Button("Cancel", role: .cancel) {}
+                    Button("Prepare .htdtcapture") {
+                        actions.prepareExport()
                     }
+                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(
                         captureCountPhrase(

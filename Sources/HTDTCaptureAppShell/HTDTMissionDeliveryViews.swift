@@ -222,7 +222,7 @@ struct HTDTMissionInboxView: View {
                         selectedRecord.recordID
                     )
             } catch {
-                dependencyError = String(describing: error)
+                dependencyError = error.localizedDescription
             }
         }
     }
@@ -740,25 +740,19 @@ struct HTDTMissionInboxView: View {
                     } label: {
                         Label("Archive", systemImage: "archivebox")
                     }
-                    .confirmationDialog(
+                    .alert(
                         "Archive this mission?",
-                        isPresented: $confirmingArchive,
-                        titleVisibility: .visible
+                        isPresented: $confirmingArchive
                     ) {
-                        // One action-producing child — iOS 26
-                        // renders only the first child, so a bare
-                        // second Button's Cancel never appears.
-                        Group {
-                            Button("Archive", role: .destructive) {
-                                Task {
-                                    await actions.archiveMission(
-                                        record.recordID
-                                    )
-                                }
-                                selectedRecord = nil
+                        Button("Archive", role: .destructive) {
+                            Task {
+                                await actions.archiveMission(
+                                    record.recordID
+                                )
                             }
-                            Button("Cancel", role: .cancel) {}
+                            selectedRecord = nil
                         }
+                        Button("Cancel", role: .cancel) {}
                     } message: {
                         Text(
                             "The mission leaves the inbox and stays in history. This cannot be undone."
@@ -1125,30 +1119,24 @@ struct PairedHTDTDestinationsView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .confirmationDialog(
+            .alert(
                 "Forget this receiver?",
                 isPresented: Binding(
                     get: { forgetCandidate != nil },
                     set: { if !$0 { forgetCandidate = nil } }
-                ),
-                titleVisibility: .visible
+                )
             ) {
-                // One action-producing child — iOS 26 renders
-                // only the first child, so a bare second
-                // Button's Cancel never appears.
-                Group {
-                    Button("Forget", role: .destructive) {
-                        if let candidate = forgetCandidate {
-                            Task {
-                                await actions.forgetDestination(
-                                    candidate.destinationID
-                                )
-                            }
+                Button("Forget", role: .destructive) {
+                    if let candidate = forgetCandidate {
+                        Task {
+                            await actions.forgetDestination(
+                                candidate.destinationID
+                            )
                         }
-                        forgetCandidate = nil
                     }
-                    Button("Cancel", role: .cancel) {}
+                    forgetCandidate = nil
                 }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
                     "The paired endpoint and its pinned identity are deleted. Re-pair before sending to this receiver again."
@@ -1349,19 +1337,15 @@ struct HTDTDeliveryQueueView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .confirmationDialog(
+            .alert(
                 pendingJobAction?.1 == .cancel
                     ? "Cancel this delivery?"
                     : "Free the staged payload?",
                 isPresented: Binding(
                     get: { pendingJobAction != nil },
                     set: { if !$0 { pendingJobAction = nil } }
-                ),
-                titleVisibility: .visible
+                )
             ) {
-                // Each branch carries its own Cancel — iOS 26
-                // renders only the first action-producing child, so
-                // a button written after the `if` never appears.
                 if let (job, action) = pendingJobAction {
                     if action == .cancel {
                         Button("Cancel delivery", role: .destructive) {

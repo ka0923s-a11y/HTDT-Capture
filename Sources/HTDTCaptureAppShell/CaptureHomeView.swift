@@ -573,7 +573,11 @@ public struct CaptureHomeView: View {
         .sheet(item: $surveyReportTarget) { target in
             SurveyReportExportSheet(target: target, actions: actions)
         }
-        .confirmationDialog(
+        // Alerts, not confirmationDialog: when the dialog anchors
+        // as a popover (iOS 26+), the anchored presentation drops
+        // every action child after the first — an alert's centered
+        // modal renders every button.
+        .alert(
             "Delete local capture?",
             isPresented: Binding(
                 get: { pendingDeletion != nil },
@@ -581,12 +585,8 @@ public struct CaptureHomeView: View {
                     if !presented { pendingDeletion = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDeletion
         ) { pending in
-            // Each branch carries its own Cancel — iOS 26 renders
-            // only the first action-producing child, so a button
-            // written after the `if` never appears.
             if pending.blockers.isEmpty {
                 Button(
                     pending.archiveOnly
@@ -608,7 +608,7 @@ public struct CaptureHomeView: View {
             Text(pending.deletionDialogMessage)
         }
         // #437: draft discard confirms — the removal is permanent.
-        .confirmationDialog(
+        .alert(
             "Discard the draft?",
             isPresented: Binding(
                 get: { pendingDraftDiscard != nil },
@@ -616,18 +616,12 @@ public struct CaptureHomeView: View {
                     if !presented { pendingDraftDiscard = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button("Discard the draft", role: .destructive) {
-                    actions.discardRecoveredDraft(draft)
-                }
-                Button("Cancel", role: .cancel) {}
+            Button("Discard the draft", role: .destructive) {
+                actions.discardRecoveredDraft(draft)
             }
+            Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text(
                 "Permanently removes the draft's saved data."
@@ -2374,7 +2368,7 @@ private struct CaptureSeriesDetailView: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .confirmationDialog(
+        .alert(
             "Delete archive copy?",
             isPresented: Binding(
                 get: { pendingArchiveDeletion != nil },
@@ -2382,19 +2376,13 @@ private struct CaptureSeriesDetailView: View {
                     if !presented { pendingArchiveDeletion = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingArchiveDeletion
         ) { record in
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button("Delete archive copy", role: .destructive) {
-                    actions.deleteExportArchive(record)
-                    pendingArchiveDeletion = nil
-                }
-                Button("Cancel", role: .cancel) {}
+            Button("Delete archive copy", role: .destructive) {
+                actions.deleteExportArchive(record)
+                pendingArchiveDeletion = nil
             }
+            Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text(
                 "Removes the derived export archive permanently; the canonical finalized capture stays."
@@ -3189,7 +3177,7 @@ private struct CaptureLibraryMaintenanceView: View {
         }
         .navigationTitle("Library maintenance")
         .inlineNavigationBarTitle()
-        .confirmationDialog(
+        .alert(
             "Remove unreadable artifact?",
             isPresented: Binding(
                 get: { pendingArtifactRemoval != nil },
@@ -3197,25 +3185,17 @@ private struct CaptureLibraryMaintenanceView: View {
                     if !presented { pendingArtifactRemoval = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingArtifactRemoval
         ) { artifact in
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button("Remove artifact", role: .destructive) {
-                    removeQuarantinedArtifact(artifact)
-                    pendingArtifactRemoval = nil
-                }
-                Button("Cancel", role: .cancel) {}
+            Button("Remove artifact", role: .destructive) {
+                removeQuarantinedArtifact(artifact)
+                pendingArtifactRemoval = nil
             }
+            Button("Cancel", role: .cancel) {}
         } message: { artifact in
-            // Single `Text` — `confirmationDialog`'s `message:`
-            // renders only the first child on iOS 26.
             Text(artifact.url.lastPathComponent + "\n" + artifact.reason)
         }
-        .confirmationDialog(
+        .alert(
             "Delete interrupted capture files?",
             isPresented: Binding(
                 get: { pendingOrphanRemoval != nil },
@@ -3223,22 +3203,14 @@ private struct CaptureLibraryMaintenanceView: View {
                     if !presented { pendingOrphanRemoval = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingOrphanRemoval
         ) { orphan in
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button("Delete", role: .destructive) {
-                    removeWorkingOrphan(orphan)
-                    pendingOrphanRemoval = nil
-                }
-                Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                removeWorkingOrphan(orphan)
+                pendingOrphanRemoval = nil
             }
+            Button("Cancel", role: .cancel) {}
         } message: { orphan in
-            // Single `Text` — `confirmationDialog`'s `message:`
-            // renders only the first child on iOS 26.
             Text(
                 orphan.url.lastPathComponent
                     + "\n"
@@ -3741,28 +3713,22 @@ private struct CaptureSeriesRetentionView: View {
                 }
             }
         }
-        .confirmationDialog(
+        .alert(
             "Delete all derived archives?",
-            isPresented: $confirmingArchivePurge,
-            titleVisibility: .visible
+            isPresented: $confirmingArchivePurge
         ) {
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button(
-                    "Delete derived archives",
-                    role: .destructive
-                ) {
-                    for record in group.revisions
-                    where record.exportArchive != nil
-                        && record.finalizedDirectory != nil
-                    {
-                        actions.deleteExportArchive(record)
-                    }
+            Button(
+                "Delete derived archives",
+                role: .destructive
+            ) {
+                for record in group.revisions
+                where record.exportArchive != nil
+                    && record.finalizedDirectory != nil
+                {
+                    actions.deleteExportArchive(record)
                 }
-                Button("Cancel", role: .cancel) {}
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text(
                 "Removes every derived export archive in this series permanently; the canonical finalized captures stay."

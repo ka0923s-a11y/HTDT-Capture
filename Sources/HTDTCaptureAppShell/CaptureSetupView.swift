@@ -561,7 +561,7 @@ public struct CaptureSetupView: View {
                 importTaskPlan(url)
             }
         }
-        .confirmationDialog(
+        .alert(
             "Discard the draft?",
             isPresented: Binding(
                 get: { pendingDraftDiscard != nil },
@@ -569,18 +569,12 @@ public struct CaptureSetupView: View {
                     if !presented { pendingDraftDiscard = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's Cancel
-            // never appears.
-            Group {
-                Button("Discard the draft", role: .destructive) {
-                    onDiscardDraft(draft)
-                }
-                Button("Cancel", role: .cancel) {}
+            Button("Discard the draft", role: .destructive) {
+                onDiscardDraft(draft)
             }
+            Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("Permanently removes the draft's saved data.")
         }

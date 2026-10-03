@@ -516,7 +516,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     selectedOperatorID:
                         fieldAuthority.selectedOperatorID,
                     captureFieldEvidencePhoto:
-                        captureFieldEvidencePhoto
+                        spatialCaptureSealed
+                            ? nil : captureFieldEvidencePhoto
                 ) { record, asset in
                     fieldAuthority.fieldEvidence.append(record)
                     if let asset {
@@ -581,7 +582,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     selectedOperatorID:
                         fieldAuthority.selectedOperatorID,
                     captureTargetedPlacement:
-                        captureTargetedPlacement
+                        spatialCaptureSealed
+                            ? nil : captureTargetedPlacement
                 ) { route in
                     fieldAuthority.wiringRoutes.append(route)
                     scheduleDraftSave()
@@ -612,7 +614,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                         $0.targetID == target.targetID
                     }.count,
                     captureTargetedPlacement:
-                        captureTargetedPlacement
+                        spatialCaptureSealed
+                            ? nil : captureTargetedPlacement
                 ) { observation in
                     var staged = fieldAuthority
                         .referenceTargetObservations ?? []
@@ -623,23 +626,17 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
             }
         }
-        .confirmationDialog(
+        .alert(
             "Discard unsaved changes?",
-            isPresented: $confirmingCancel,
-            titleVisibility: .visible
+            isPresented: $confirmingCancel
         ) {
-            // One action-producing child — iOS 26 renders only
-            // the first child, so a bare second Button's cancel
-            // action never appears.
-            Group {
-                Button(
-                    "Discard changes",
-                    role: .destructive
-                ) {
-                    cancel()
-                }
-                Button("Keep editing", role: .cancel) {}
+            Button(
+                "Discard changes",
+                role: .destructive
+            ) {
+                cancel()
             }
+            Button("Keep editing", role: .cancel) {}
         } message: {
             Text(
                 "Staged annotations, measurements, and identity records that have not been saved are dropped. This does not change the previously saved authority."
@@ -1983,7 +1980,11 @@ public struct CaptureAnnotationWorkspaceView: View {
                 equipmentCatalogEntries:
                     equipmentCatalog?.definitions ?? [],
                 equipmentRecents: equipmentRecents,
-                scanEquipmentLabel: scanEquipmentLabel,
+                // The label scan needs a live camera frame — under
+                // the spatial seal the session is gone, so the
+                // affordance hides like the other camera paths.
+                scanEquipmentLabel:
+                    spatialCaptureSealed ? nil : scanEquipmentLabel,
                 authorities: Binding(
                     get: { authorities },
                     set: { newValue in
