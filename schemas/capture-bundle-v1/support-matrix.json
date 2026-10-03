@@ -315,6 +315,19 @@
         "1.0.0"
       ]
     },
+    "reference-object-observations": {
+      "schema_id": "htdt.capture.reference-object-observations",
+      "paths": [
+        "evidence/reference-object-observations.json"
+      ],
+      "documents": {
+        "1.0.0": "reference-object-observations"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
     "as-built": {
       "schema_id": "htdt.capture.as-built-verification",
       "paths": [

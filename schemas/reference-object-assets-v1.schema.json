@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/reference-object-assets-v1.schema.json",
+  "title": "HTDT Capture Reference-Object Asset Manifest v1",
+  "description": "App-bundle provenance manifest for shipped .referenceobject assets (issue #268), loaded from ReferenceObjects/manifest.json. Records per asset: stable id + revision, artifact digest, source USDZ identity/digest, intended physical binding, measured dimensions + scale-validation method, Create ML/Xcode toolchain, training mode, viewing-angle config, negative-example set, session roles, optional marker-to-equipment rigid transform with calibration source, and license provenance. A retrained artifact is a new revision — old evidence is never reinterpreted against a retrained asset. Mission INPUT, not capture output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "assets"],
+  "properties": {
+    "schema": {"const": "htdt.capture.reference-object-assets"},
+    "schema_version": {"const": "1.0.0"},
+    "assets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/asset"},
+      "description": "Shipped assets. Unique on asset_id; the app enforces a per-mission selection cap of 10 configured objects."
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase SHA-256 hex."
+    },
+    "sourceArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {
+        "uri": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "revision": {"type": "string"}
+      }
+    },
+    "trainingProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "training_mode",
+        "viewing_angle_config",
+        "referenceobject_strip_usdz"
+      ],
+      "properties": {
+        "createml_version": {"type": "string"},
+        "xcode_version": {"type": "string"},
+        "training_mode": {"enum": ["standard", "extended"]},
+        "viewing_angle_config": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Free-text record of the createml viewing-angle flags used (e.g. 'upright', 'all-angles')."
+        },
+        "negative_example_set": {"type": "string"},
+        "referenceobject_strip_usdz": {
+          "type": "boolean",
+          "description": "Whether REFERENCEOBJECT_STRIP_USDZ stripped the embedded USDZ from the shipped artifact."
+        }
+      }
+    },
+    "markerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transform_id",
+        "t_marker_from_equipment",
+        "calibration_source"
+      ],
+      "properties": {
+        "transform_id": {"type": "string", "minLength": 1},
+        "t_marker_from_equipment": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {"type": "number"},
+          "description": "Column-major rigid transform, marker frame from equipment frame."
+        },
+        "calibration_source": {"type": "string", "minLength": 1}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "revision",
+        "arkit_object_name",
+        "artifact_filename",
+        "artifact_sha256",
+        "source_usdz",
+        "physical_binding",
+        "measured_dimensions_m",
+        "scale_validation_method",
+        "training",
+        "supported_roles",
+        "license_provenance"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "description": "Stable slug — survives retraining; only revision advances."
+        },
+        "revision": {"type": "integer", "minimum": 1},
+        "arkit_object_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Value assigned to ARReferenceObject.name — the runtime match key from ARObjectAnchor back to this entry."
+        },
+        "artifact_filename": {
+          "type": "string",
+          "pattern": "\\.referenceobject$",
+          "description": "File inside ReferenceObjects/. Must end in .referenceobject — legacy .arobject cannot mix with .referenceobject in one session."
+        },
+        "artifact_sha256": {"$ref": "#/$defs/digest"},
+        "source_usdz": {"$ref": "#/$defs/sourceArtifact"},
+        "physical_binding": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Declaration of the physical object this asset stands for — manifest intent only, never equipment identity."
+        },
+        "measured_dimensions_m": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"type": "number", "exclusiveMinimum": 0}
+        },
+        "scale_validation_method": {"type": "string", "minLength": 1},
+        "training": {"$ref": "#/$defs/trainingProvenance"},
+        "supported_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["detection", "tracking"]}
+        },
+        "marker_to_equipment": {"$ref": "#/$defs/markerBinding"},
+        "license_provenance": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

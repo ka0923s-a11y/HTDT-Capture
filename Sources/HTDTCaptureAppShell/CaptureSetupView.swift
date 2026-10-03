@@ -36,6 +36,16 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// discoverable with its next-step affordances before a new
     /// capture starts.
     public let interruptedDrafts: [RecoverableWorkingRevision]
+    /// Shipped `.referenceobject` catalog for this build (#268) —
+    /// nil when the bundle carries no `ReferenceObjects/manifest.json`.
+    /// Mission-scoped: the operator picks up to
+    /// `ReferenceObjectSelectionPolicy.maxConfiguredObjects` assets
+    /// here; there is no global catalog browser.
+    public let referenceObjectManifest: ReferenceObjectAssetManifest?
+    /// The operator's current per-mission picks (#268). Persisted
+    /// verbatim into the observation document's selection echo when
+    /// the session configuration is applied.
+    public let referenceObjectRequests: [ReferenceObjectSelectionRequest]
 
     public init(
         capabilities: CaptureCapabilityMatrix,
@@ -48,7 +58,9 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         importedTaskPlan: HTDTCaptureTaskPlan? = nil,
         taskPlanImportError: String? = nil,
         cameraPermission: CameraPermissionStatus? = nil,
-        interruptedDrafts: [RecoverableWorkingRevision] = []
+        interruptedDrafts: [RecoverableWorkingRevision] = [],
+        referenceObjectManifest: ReferenceObjectAssetManifest? = nil,
+        referenceObjectRequests: [ReferenceObjectSelectionRequest] = []
     ) {
         self.capabilities = capabilities
         self.storagePreflight = storagePreflight
@@ -60,6 +72,8 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         self.taskPlanImportError = taskPlanImportError
         self.cameraPermission = cameraPermission
         self.interruptedDrafts = interruptedDrafts
+        self.referenceObjectManifest = referenceObjectManifest
+        self.referenceObjectRequests = referenceObjectRequests
     }
 
     /// Which mission authority will bind at Begin: an imported HTDT
@@ -185,6 +199,10 @@ public struct CaptureSetupView: View {
     public let onResumeDraft: (RecoverableWorkingRevision) -> Void
     /// #437: permanently removes a stranded draft's saved data.
     public let onDiscardDraft: (RecoverableWorkingRevision) -> Void
+    /// Sets (or clears, with nil) the reference-object role the
+    /// operator picked for one manifest asset (#268).
+    public let setReferenceObjectRole:
+        (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
 
     @State private var importingTaskPlan = false
     /// Draft pending discard confirmation (#437) — removing it is
@@ -217,7 +235,10 @@ public struct CaptureSetupView: View {
             (RecoverableWorkingRevision) -> Void = { _ in },
         onDiscardDraft: @escaping
             (RecoverableWorkingRevision) -> Void = { _ in },
-        openCameraSettings: @escaping () -> Void = {}
+        openCameraSettings: @escaping () -> Void = {},
+        setReferenceObjectRole: @escaping
+            (ReferenceObjectAssetID, ReferenceObjectAssetRole?)
+                -> Void = { _, _ in }
     ) {
         self.presentation = presentation
         self.connectedSpaceIntent = connectedSpaceIntent
@@ -235,11 +256,13 @@ public struct CaptureSetupView: View {
         self.onResumeDraft = onResumeDraft
         self.onDiscardDraft = onDiscardDraft
         self.openCameraSettings = openCameraSettings
+        self.setReferenceObjectRole = setReferenceObjectRole
     }
 
     public var body: some View {
         List {
             captureMissionSection
+            referenceObjectSection
 
             // #437: a stranded draft is discoverable before a new
             // capture starts — the same resume/discard affordances
@@ -740,6 +763,91 @@ public struct CaptureSetupView: View {
             Text(
                 "Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action."
             )
+        }
+    }
+
+    /// #268: bounded per-mission reference-object picker — one row
+    /// per shipped asset, an off/detection/tracking choice each. The
+    /// selection lands on the session configuration at Begin and is
+    /// echoed into the observation document; there is deliberately
+    /// no catalog browser or free-form object entry.
+    @ViewBuilder
+    private var referenceObjectSection: some View {
+        if let manifest = presentation.referenceObjectManifest,
+           !manifest.assets.isEmpty
+        {
+            Section {
+                ForEach(manifest.assets, id: \.assetID) { asset in
+                    LabeledContent {
+                        Picker(
+                            String(localized: "Mode"),
+                            selection: Binding<
+                                ReferenceObjectAssetRole?
+                            >(
+                                get: {
+                                    presentation
+                                        .referenceObjectRequests
+                                        .first {
+                                            $0.assetID == asset.assetID
+                                        }?.role
+                                },
+                                set: { role in
+                                    setReferenceObjectRole(
+                                        asset.assetID,
+                                        role
+                                    )
+                                }
+                            )
+                        ) {
+                            Text(String(localized: "Off"))
+                                .tag(
+                                    ReferenceObjectAssetRole?.none
+                                )
+                            Text(String(localized: "Detection"))
+                                .tag(
+                                    ReferenceObjectAssetRole?
+                                        .some(.detection)
+                                )
+                            if asset.supportedRoles.contains(
+                                .tracking
+                            ) {
+                                Text(String(localized: "Tracking"))
+                                    .tag(
+                                        ReferenceObjectAssetRole?
+                                            .some(.tracking)
+                                    )
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(asset.physicalBinding)
+                                .font(.callout)
+                            CaptureTechnicalText(
+                                asset.arkitObjectName
+                            )
+                        }
+                    }
+                }
+            } header: {
+                Text(String(localized: "Reference objects"))
+            } footer: {
+                let selectedCount =
+                    presentation.referenceObjectRequests.count
+                Text(
+                    String(
+                        format: String(
+                            localized:
+                                "%d of %d reference objects selected for this mission. Detection tracks stationary fixtures; tracking follows movable objects and raises power use. Matched objects land as observations you accept per annotation — they never overwrite equipment identity."
+                        ),
+                        selectedCount,
+                        ReferenceObjectSelectionPolicy
+                            .maxConfiguredObjects
+                    )
+                )
+            }
         }
     }
 

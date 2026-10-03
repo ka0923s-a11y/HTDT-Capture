@@ -232,6 +232,49 @@ public enum ARSessionLifecycleEvent: Sendable, Equatable {
     case didOutputCollaborationData(priorityIsCritical: Bool)
 }
 
+/// What `configureReferenceObjects` actually achieved on the live
+/// session (#268) — the recorded outcome distinguishes applied sets,
+/// an unsupported tracking request, a refused configuration, and a
+/// post-run read-back mismatch, so provenance never overstates what
+/// ARKit adopted.
+public struct ReferenceObjectReconfigurationResult:
+    Sendable, Equatable
+{
+    public enum Status: String, Sendable, Equatable {
+        /// Requested sets verified on the running configuration.
+        case configured
+        /// The live configuration is not a world-tracking
+        /// configuration — reference objects were not applied.
+        case incompatibleConfiguration
+        /// Tracking objects were requested but this OS/SDK cannot
+        /// adopt them (`trackingObjects` is iOS 27+). Nothing was
+        /// applied or silently demoted to detection.
+        case trackingUnsupported
+        /// `run` was issued but the live configuration's object sets
+        /// differ from what was requested.
+        case verificationMismatch
+    }
+
+    public let status: Status
+    /// Machine-readable detail (`key=value`, space separated) —
+    /// requested vs adopted object names for provenance.
+    public let detail: String
+    /// Whether `ARSession.run` was re-issued. When true the session
+    /// restarted its configuration — the caller treats anchor and
+    /// coordinate continuity accordingly.
+    public let sessionRestarted: Bool
+
+    public init(
+        status: Status,
+        detail: String,
+        sessionRestarted: Bool
+    ) {
+        self.status = status
+        self.detail = detail
+        self.sessionRestarted = sessionRestarted
+    }
+}
+
 @available(iOS 17.0, *)
 @MainActor
 private final class ARSessionLifecycleBridge:
@@ -324,16 +367,19 @@ private final class ARSessionLifecycleBridge:
 
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
         reportMeshAnchors(anchors, kind: .added, session: session)
+        reportObjectAnchors(anchors, kind: .added, session: session)
         passthrough?.session?(session, didAdd: anchors)
     }
 
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         reportMeshAnchors(anchors, kind: .updated, session: session)
+        reportObjectAnchors(anchors, kind: .updated, session: session)
         passthrough?.session?(session, didUpdate: anchors)
     }
 
     func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
         reportMeshAnchors(anchors, kind: .removed, session: session)
+        reportObjectAnchors(anchors, kind: .removed, session: session)
         passthrough?.session?(session, didRemove: anchors)
     }
 
@@ -356,10 +402,40 @@ private final class ARSessionLifecycleBridge:
         )
     }
 
+    /// Reference-object anchors are forwarded whole: the host needs the
+    /// matched `referenceObject` name, `transform`, and (iOS 27)
+    /// `ARTrackable.isTracked` — none of which a bare UUID carries.
+    private func reportObjectAnchors(
+        _ anchors: [ARAnchor],
+        kind: MeshAnchorLifecycleKind,
+        session: ARSession
+    ) {
+        let objectAnchors = anchors.compactMap {
+            $0 as? ARObjectAnchor
+        }
+        guard !objectAnchors.isEmpty else { return }
+        if let timestamp = session.currentFrame?.timestamp {
+            lastObservedTimestamp = timestamp
+        }
+        objectAnchorHandler?(
+            kind,
+            objectAnchors,
+            lastObservedTimestamp ?? 0
+        )
+    }
+
     var meshAnchorHandler: (
         @MainActor (
             MeshAnchorLifecycleKind,
             [UUID],
+            Double
+        ) -> Void
+    )?
+
+    var objectAnchorHandler: (
+        @MainActor (
+            MeshAnchorLifecycleKind,
+            [ARObjectAnchor],
             Double
         ) -> Void
     )?
@@ -533,6 +609,130 @@ public final class SharedARSessionController {
     )? {
         get { sessionDelegateBridge.meshAnchorHandler }
         set { sessionDelegateBridge.meshAnchorHandler = newValue }
+    }
+
+    /// Reference-object anchor add/update/remove callbacks (#268) from
+    /// the single shared session delegate — never a second delegate.
+    /// Anchors arrive unfiltered so the host can read the matched
+    /// `referenceObject` name, pose transform, and `isTracked`.
+    public var objectAnchorLifecycleHandler: (
+        @MainActor (
+            MeshAnchorLifecycleKind,
+            [ARObjectAnchor],
+            Double
+        ) -> Void
+    )? {
+        get { sessionDelegateBridge.objectAnchorHandler }
+        set { sessionDelegateBridge.objectAnchorHandler = newValue }
+    }
+
+    /// Installs reference-object detection/tracking sets on the live
+    /// `ARWorldTrackingConfiguration` and re-runs the session (#268).
+    ///
+    /// The result is always honest about what the running
+    /// configuration adopted: `trackingObjects` is only reachable on
+    /// iOS 27+, so a tracking request on an older system or an older
+    /// SDK returns `.trackingUnsupported` rather than silently
+    /// degrading the objects to detection. Read-back verification
+    /// compares the live configuration's object names against what was
+    /// requested — a mismatch is surfaced, never claimed as success.
+    ///
+    /// A `.arobject` archive is never accepted: iOS 27 cannot mix
+    /// legacy and `.referenceobject` payloads in one session, and the
+    /// detection-only legacy path is out of scope for this lane.
+    @discardableResult
+    public func configureReferenceObjects(
+        detection: Set<ARReferenceObject>,
+        tracking: Set<ARReferenceObject>
+    ) -> ReferenceObjectReconfigurationResult {
+        guard !detection.isEmpty || !tracking.isEmpty else {
+            return ReferenceObjectReconfigurationResult(
+                status: .configured,
+                detail: "empty_sets no_change",
+                sessionRestarted: false
+            )
+        }
+        guard
+            let configuration = arSession.configuration
+                as? ARWorldTrackingConfiguration
+        else {
+            return ReferenceObjectReconfigurationResult(
+                status: .incompatibleConfiguration,
+                detail:
+                    "live_configuration=\(String(describing: arSession.configuration.flatMap { Swift.type(of: $0) }))",
+                sessionRestarted: false
+            )
+        }
+        // Legacy `.arobject` payloads land in detectionObjects too;
+        // there is no SDK affordance that separates them post-load, so
+        // the host must hold the format gate at load time. This API
+        // only carries `.referenceobject` archives and says so in the
+        // outcome detail for provenance.
+        let trackingSupported: Bool = {
+            guard #available(iOS 27.0, *) else { return false }
+            // `trackingObjects` is an iOS 27 SDK symbol — absent from
+            // earlier SDK surfaces entirely — so it is probed through
+            // KVC rather than referenced directly.
+            return configuration.responds(
+                to: NSSelectorFromString("setTrackingObjects:")
+            )
+        }()
+        if !tracking.isEmpty, !trackingSupported {
+            return ReferenceObjectReconfigurationResult(
+                status: .trackingUnsupported,
+                detail:
+                    "tracking_requested=\(tracking.count) detection_requested=\(detection.count)",
+                sessionRestarted: false
+            )
+        }
+        let requestedDetectionNames = Set(detection.compactMap(\.name))
+        let requestedTrackingNames = Set(tracking.compactMap(\.name))
+        configuration.detectionObjects = detection
+        if trackingSupported {
+            configuration.setValue(
+                NSSet(set: tracking),
+                forKey: "trackingObjects"
+            )
+        }
+        arSession.run(configuration, options: [])
+
+        // Read-back: the live configuration post-run decides what was
+        // actually adopted.
+        guard
+            let adopted = arSession.configuration
+                as? ARWorldTrackingConfiguration
+        else {
+            return ReferenceObjectReconfigurationResult(
+                status: .verificationMismatch,
+                detail:
+                    "post_run_configuration_missing detection_requested=\(requestedDetectionNames.sorted())",
+                sessionRestarted: true
+            )
+        }
+        let adoptedDetection = Set(
+            adopted.detectionObjects.compactMap(\.name)
+        )
+        var adoptedTracking: Set<String> = []
+        if trackingSupported {
+            adoptedTracking = Set(
+                ((adopted.value(forKey: "trackingObjects")
+                    as? Set<ARReferenceObject>) ?? [])
+                    .compactMap(\.name)
+            )
+        }
+        let detectionOK = adoptedDetection == requestedDetectionNames
+        let trackingOK =
+            !trackingSupported || adoptedTracking == requestedTrackingNames
+        return ReferenceObjectReconfigurationResult(
+            status: detectionOK && trackingOK
+                ? .configured : .verificationMismatch,
+            detail:
+                "detection_requested=\(requestedDetectionNames.sorted()) "
+                + "tracking_requested=\(requestedTrackingNames.sorted()) "
+                + "adopted_detection=\(adoptedDetection.sorted()) "
+                + "adopted_tracking=\(adoptedTracking.sorted())",
+            sessionRestarted: true
+        )
     }
 
     /// RoomPlan coaching/instruction observations (#260). Installed as
