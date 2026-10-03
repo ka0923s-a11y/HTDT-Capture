@@ -8,7 +8,6 @@ public enum ARConfigurationSnapshotError: Error {
     case unsupportedConfigurationType(String)
 }
 
-@available(iOS 17.0, *)
 public enum ARConfigurationSnapshotAdapter {
     public static func snapshot(
         session: ARSession,

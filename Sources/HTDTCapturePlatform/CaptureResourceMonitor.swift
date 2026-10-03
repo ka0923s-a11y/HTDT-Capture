@@ -224,7 +224,6 @@ public protocol CaptureStorageSampleDriver: AnyObject, Sendable {
 
 /// Default `CaptureStorageSampleDriver`: a task loop sleeping `interval`
 /// between ticks until cancelled (#140).
-@available(iOS 17.0, *)
 @MainActor
 public final class CaptureStorageSampleTimerDriver
     : CaptureStorageSampleDriver
@@ -297,7 +296,6 @@ public struct CaptureResourceMonitorLogEntry: Sendable, Equatable {
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 public final class CaptureResourceMonitor: NSObject {
     public typealias EventHandler = @MainActor (
