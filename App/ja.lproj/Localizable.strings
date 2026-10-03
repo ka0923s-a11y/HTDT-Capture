@@ -1488,6 +1488,7 @@
 "Interrupted capture data needs attention." = "中断されたキャプチャデータは対応が必要です。";
 "Interrupted capture files" = "中断されたキャプチャファイル";
 "Unreadable artifacts" = "読み取り不可能なアーティファクト";
+"Cannot be removed automatically — delete it from the capture folder manually." = "自動では削除できません。キャプチャフォルダから手動で削除してください。";
 
 "Camera access is required" = "カメラへのアクセスが必要です";
 "Enable camera access in Settings to scan a room." = "部屋をスキャンするには設定でカメラへのアクセスを許可してください。";

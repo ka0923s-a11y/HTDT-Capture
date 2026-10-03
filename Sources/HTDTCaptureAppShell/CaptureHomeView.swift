@@ -1652,6 +1652,8 @@ public struct CaptureHomeView: View {
         case .maintenance:
             CaptureLibraryMaintenanceView(
                 inventory: persistedInventory,
+                canRemoveArtifact:
+                    actions.canRemoveQuarantinedArtifact,
                 removeQuarantinedArtifact:
                     actions.removeQuarantinedArtifact,
                 removeWorkingOrphan:
@@ -3005,6 +3007,8 @@ private struct CaptureSeriesDetailView: View {
 /// reachable but out of the normal theater library.
 private struct CaptureLibraryMaintenanceView: View {
     let inventory: PersistedCaptureInventoryResult
+    let canRemoveArtifact:
+        (PersistedCaptureQuarantinedArtifact) -> Bool
     let removeQuarantinedArtifact:
         (PersistedCaptureQuarantinedArtifact) -> Void
     let removeWorkingOrphan:
@@ -3101,14 +3105,27 @@ private struct CaptureLibraryMaintenanceView: View {
                             Text(artifact.reason)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Button(
-                                "Remove artifact",
-                                role: .destructive
-                            ) {
-                                pendingArtifactRemoval = artifact
+                            if canRemoveArtifact(artifact) {
+                                Button(
+                                    "Remove artifact",
+                                    role: .destructive
+                                ) {
+                                    pendingArtifactRemoval = artifact
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            } else {
+                                // The store can never prove ownership
+                                // of this item (e.g. a working/ dir
+                                // whose name is not a revision UUID),
+                                // so a Remove button would always
+                                // fail — say so instead.
+                                Text(
+                                    "Cannot be removed automatically — delete it from the capture folder manually."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
                     }
                 }

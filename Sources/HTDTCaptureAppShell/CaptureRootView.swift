@@ -139,6 +139,8 @@ public struct CaptureRootActions {
         (CaptureRevisionID) -> Void
     public let deletePersistedCapture:
         (CaptureRevisionID) -> Void
+    public let canRemoveQuarantinedArtifact:
+        (PersistedCaptureQuarantinedArtifact) -> Bool
     public let removeQuarantinedArtifact:
         (PersistedCaptureQuarantinedArtifact) -> Void
     public let removeWorkingOrphan:
@@ -557,6 +559,9 @@ public struct CaptureRootActions {
             (CaptureRevisionID) -> Void = { _ in },
         deletePersistedCapture: @escaping
             (CaptureRevisionID) -> Void = { _ in },
+        canRemoveQuarantinedArtifact: @escaping
+            (PersistedCaptureQuarantinedArtifact) -> Bool
+                = { _ in true },
         removeQuarantinedArtifact: @escaping
             (PersistedCaptureQuarantinedArtifact) -> Void
                 = { _ in },
@@ -828,6 +833,8 @@ public struct CaptureRootActions {
         self.resetCapture = resetCapture
         self.openPersistedCapture = openPersistedCapture
         self.deletePersistedCapture = deletePersistedCapture
+        self.canRemoveQuarantinedArtifact =
+            canRemoveQuarantinedArtifact
         self.removeQuarantinedArtifact =
             removeQuarantinedArtifact
         self.removeWorkingOrphan = removeWorkingOrphan

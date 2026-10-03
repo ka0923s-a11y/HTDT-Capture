@@ -277,6 +277,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.openPersistedCapture,
                 deletePersistedCapture:
                     coordinator.deletePersistedCapture,
+                canRemoveQuarantinedArtifact:
+                    coordinator.canRemoveQuarantinedArtifact,
                 removeQuarantinedArtifact:
                     coordinator.removeQuarantinedArtifact,
                 removeWorkingOrphan:
@@ -8618,6 +8620,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + "]"
             }
         }
+    }
+
+    /// Mirrors `PersistedCaptureInventory.canRemoveArtifact` — the
+    /// maintenance view gates the Remove affordance on this so a
+    /// quarantined item the store would only refuse never shows a
+    /// doomed button.
+    func canRemoveQuarantinedArtifact(
+        _ artifact: PersistedCaptureQuarantinedArtifact
+    ) -> Bool {
+        persistedStore?.canRemoveArtifact(artifact) ?? false
     }
 
     /// Removes a quarantined artifact. Removal authority is limited to
