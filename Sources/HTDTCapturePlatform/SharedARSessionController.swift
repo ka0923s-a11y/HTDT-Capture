@@ -248,6 +248,13 @@ private final class ARSessionLifecycleBridge:
         @MainActor (ARSessionLifecycleEvent) -> Void
     )?
 
+    /// Called with every `didUpdate` frame timestamp so the
+    /// controller's bounded cadence tracker sees the live frame
+    /// interval distribution (#273 instrumentation).
+    var frameTimestampHandler: (
+        @MainActor (Double) -> Void
+    )?
+
     func session(
         _ session: ARSession,
         didFailWithError error: any Error
@@ -319,6 +326,7 @@ private final class ARSessionLifecycleBridge:
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastObservedTimestamp = frame.timestamp
+        frameTimestampHandler?(frame.timestamp)
         passthrough?.session?(session, didUpdate: frame)
     }
 
@@ -510,6 +518,12 @@ public final class SharedARSessionController {
     private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
 
+    /// Bounded AR frame-interval measurement (#273 instrumentation).
+    /// Fed by the lifecycle bridge's `didUpdate` passthrough; the
+    /// admission policy never reads it — it exists for the physical
+    /// benchmark profile.
+    private var frameCadenceTracker = ARFrameCadenceTracker()
+
     /// Handler invoked on the main actor for ARSession lifecycle events:
     /// interruption began/ended, terminal failure, camera tracking
     /// transitions and collaboration-data output. The host binds each
@@ -575,6 +589,24 @@ public final class SharedARSessionController {
         self.roomCaptureView.isModelEnabled = true
         self.roomCaptureView.delegate = roomPlanDelegateBridge
         installSessionLifecycleBridge()
+        sessionDelegateBridge.frameTimestampHandler = {
+            [weak self] timestamp in
+            self?.frameCadenceTracker.record(
+                timestampSeconds: timestamp
+            )
+        }
+    }
+
+    /// The bounded frame-interval distribution observed so far this
+    /// capture (#273 physical-benchmark metric).
+    public func frameCadenceSummary() -> ARFrameCadenceSummary {
+        frameCadenceTracker.summary()
+    }
+
+    /// Clears the cadence window — call when a new capture generation
+    /// starts so the distribution describes one capture only.
+    public func resetFrameCadenceTracking() {
+        frameCadenceTracker.reset()
     }
 
     /// Installs the lifecycle bridge as `arSession.delegate` while

@@ -566,6 +566,12 @@ public actor CaptureWorkingSetStore {
     /// so sustained pressure emits one bounded event rather than one
     /// per admission.
     private var backlogPressureActive = false
+    /// Read-only exposure of `backlogPressureActive` so the optional-
+    /// work admission policy (#273) reuses this authority's writer-
+    /// backlog signal instead of a parallel measurement.
+    public var persistenceBacklogPressureActive: Bool {
+        backlogPressureActive
+    }
     /// Bumped on every seal-state transition. A `sealForFinalization`
     /// call captures it so an `unseal`/`consume` that slips into a
     /// writer suspension deterministically aborts the in-flight seal

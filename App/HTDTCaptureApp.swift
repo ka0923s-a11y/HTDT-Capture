@@ -1193,6 +1193,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
+    /// #273 Stage 1 optional-work admission/degradation ledger —
+    /// layered on the resource monitor/session authorities, not a
+    /// scheduler. Evaluates per-tick optional work and bounds each
+    /// feature's one-in-flight request.
+    private var optionalWorkTracker = OptionalWorkAdmissionTracker()
+    /// Admission ticket held by a running targeted object pass (#273);
+    /// `endTargetScan` finishes it with the pass's outcome.
+    private var targetedObjectAdmission:
+        OptionalWorkAdmissionTicket?
+    /// Set while the live ARSession reports an interruption that has
+    /// not yet been resolved — feeds the optional-work health
+    /// snapshot (#273).
+    private var arSessionInterrupted = false
     // 1.2.0 adds the versioned tracking-recovery and depth-fallback
     // sufficiency policies (#242, #284). Published 1.1.0 semantics stay
     // pinned in the registry for reopened/older captures.
@@ -1680,6 +1693,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         semanticCorrectionParent = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
+        // #273: a fresh capture drops every optional-work
+        // registration; the new generation already invalidates
+        // outstanding results through the existing fence.
+        optionalWorkTracker.resetInflight()
+        targetedObjectAdmission = nil
+        arSessionInterrupted = false
+        // #273: a fresh capture also opens a fresh frame-cadence
+        // window so the distribution describes one capture only.
+        sessionController.resetFrameCadenceTracking()
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
@@ -2231,6 +2253,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// from a center-of-view raycast against live mesh/depth evidence —
     /// a bounded anchor the operator aimed at, never a fabricated
     /// segmentation.
+    /// #273: the targeted object pass is the operator's explicit
+    /// measurement task — an `activeAssist` admission. The start is
+    /// gated by the same health snapshot every optional workload uses;
+    /// a deferral surfaces as a clear status line plus advisory
+    /// provenance instead of silently doing nothing.
     func beginTargetScan() {
         guard state == .scanning,
               !isEndingScan,
@@ -2238,6 +2265,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return
         }
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .scanning,
+                  !self.isEndingScan,
+                  self.targetScanTracker == nil
+            else {
+                return
+            }
+            let health = await self.captureHealthSnapshot()
+            let admission = self.optionalWorkTracker.begin(
+                .targetedObjectPass,
+                phase: .targetOrMeasurement,
+                health: health,
+                sessionTimestampSeconds:
+                    self.latestScanTimestampSeconds
+            )
+            guard let ticket = admission.ticket else {
+                self.admitOptionalWorkDenial(
+                    workload: .targetedObjectPass,
+                    decision: admission.decision,
+                    phase: .targetOrMeasurement
+                )
+                return
+            }
+            self.targetedObjectAdmission = ticket
+            self.performBeginTargetScan()
+        }
+    }
+
+    private func performBeginTargetScan() {
         do {
             // Aim at live mesh/RoomPlan geometry first so the anchor
             // lands on the aimed item (a small object on a desk), not
@@ -2332,6 +2391,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             workingSetStatus = String(localized: "Object pass started; keep the aimed object centered and move around it")
         } catch {
+            // The pass never started — release the admission slot so
+            // a later assist is not permanently blocked (#273).
+            if let ticket = targetedObjectAdmission {
+                optionalWorkTracker.finish(
+                    ticket,
+                    outcome: .failed,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+                targetedObjectAdmission = nil
+            }
             workingSetStatus = String(localized: "No surface was detected at the aim point; aim at the object and try again")
         }
     }
@@ -2361,7 +2431,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let anchorSource = targetScanAnchorSource
         let fusedObservation =
             targetedObjectFusionTracker.fusedObservation()
-        endTargetScan()
+        endTargetScan(outcome: .completed)
         // Provenance note fires even when the pass was accepted before
         // the first status tick. `radius_m` reports the effective
         // observation window — the anchor bound is an orbit region,
@@ -2445,7 +2515,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
     }
 
-    private func endTargetScan() {
+    private func endTargetScan(
+        outcome: OptionalWorkOutcome = .cancelled
+    ) {
+        if let ticket = targetedObjectAdmission {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: outcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
+            targetedObjectAdmission = nil
+        }
         targetScanTracker = nil
         targetScanStatus = nil
         // Accepted minted proxies survive in targetedObjectProxies; the
@@ -4063,6 +4144,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .annotating else {
             throw PlatformCaptureError.currentFrameUnavailable
         }
+        // #273: bounded high-quality visual request — an assist
+        // admission that sheds under pressure like every other
+        // optional workload.
+        let health = await captureHealthSnapshot()
+        let admission = optionalWorkTracker.begin(
+            .fieldEvidencePhotoCapture,
+            phase: .reviewAnnotation,
+            health: health,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        )
+        guard let ticket = admission.ticket else {
+            admitOptionalWorkDenial(
+                workload: .fieldEvidencePhotoCapture,
+                decision: admission.decision,
+                phase: .reviewAnnotation
+            )
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        var admissionOutcome = OptionalWorkOutcome.failed
+        defer {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: admissionOutcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
+        }
         let generation = captureGeneration
         let snapshot =
             try sessionController.snapshotFrameEvidenceCapture(
@@ -4073,11 +4181,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .annotating
         else {
+            admissionOutcome = .staleRejected
             throw PlatformCaptureError.currentFrameUnavailable
         }
         guard let preview = artifacts.previewPayload else {
+            admissionOutcome = .failed
             throw PlatformCaptureError.currentFrameUnavailable
         }
+        admissionOutcome = .completed
         return CapturedFieldPhoto(
             data: preview,
             mediaType: .heic,
@@ -4104,6 +4215,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
+        // #273: bounded high-quality visual request — an assist
+        // admission gated on capture health.
+        let health = await captureHealthSnapshot()
+        let admission = optionalWorkTracker.begin(
+            .identityPhotoCapture,
+            phase: .reviewAnnotation,
+            health: health,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        )
+        guard let ticket = admission.ticket else {
+            admitOptionalWorkDenial(
+                workload: .identityPhotoCapture,
+                decision: admission.decision,
+                phase: .reviewAnnotation
+            )
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        var admissionOutcome = OptionalWorkOutcome.failed
+        defer {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: admissionOutcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
+        }
+
         let generation = captureGeneration
         let snapshot =
             try sessionController.snapshotFrameEvidenceCapture(
@@ -4123,6 +4261,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .annotating
         else {
+            admissionOutcome = .staleRejected
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
@@ -4134,6 +4273,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             rootDirectory: await store.rootDirectory
         )
         workingSetStatus = String(localized: "Identity evidence photo captured")
+        admissionOutcome = .completed
         return evidenceRef
     }
 
@@ -4800,6 +4940,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// OCR/barcode recognition, and returns suggestion candidates.
     /// Nothing is committed — the sheet only suggests; the operator
     /// confirms a candidate explicitly (or cancels and types manually).
+    /// #345 Vision label scan — an `activeAssist` one-shot (#273):
+    /// admission-gated on capture health, bounded to one in flight,
+    /// and its ticket finishes with the request's outcome.
     func scanEquipmentLabel() async throws
         -> EquipmentLabelScanResult
     {
@@ -4807,6 +4950,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               let store = workingSetStore
         else {
             throw EquipmentLabelScanError.scanUnavailable
+        }
+
+        let health = await captureHealthSnapshot()
+        let admission = optionalWorkTracker.begin(
+            .equipmentLabelScan,
+            phase: .reviewAnnotation,
+            health: health,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        )
+        guard let ticket = admission.ticket else {
+            // Deferred/rejected: the operator sees why on the status
+            // line and the denial persists as advisory provenance.
+            admitOptionalWorkDenial(
+                workload: .equipmentLabelScan,
+                decision: admission.decision,
+                phase: .reviewAnnotation
+            )
+            throw EquipmentLabelScanError.scanUnavailable
+        }
+        var admissionOutcome = OptionalWorkOutcome.failed
+        defer {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: admissionOutcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
         }
 
         let generation = captureGeneration
@@ -4834,6 +5004,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .annotating
         else {
+            // The capture generation moved on mid-request — the
+            // finished work's result is stale by the feature's own
+            // boundary (#273 stale-result rejection).
+            admissionOutcome = .staleRejected
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
@@ -4850,6 +5024,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             catalog: equipmentCatalog?.definitions ?? []
         )
         workingSetStatus = String(localized: "Label scanned — review the suggestions")
+        admissionOutcome = .completed
         return EquipmentLabelScanResult(
             algorithm: EquipmentLabelScanMatcher.algorithm,
             algorithmVersion:
@@ -13185,7 +13360,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.setRoomPlanModelRenderingEnabled(
                             !resourcePressure
                         )
-                        let derivedWorkAllowed = !resourcePressure
+                        // #273: the fused derived-shape preview is
+                        // optional semantic work on a bounded
+                        // (periodic) cadence — its per-tick admission
+                        // comes from the shared policy instead of the
+                        // ad-hoc resource check it used before.
+                        let derivedHealth =
+                            await self.captureHealthSnapshot(
+                                thermalState: thermalState
+                            )
+                        let derivedWorkAllowed =
+                            self.optionalWorkTracker.evaluate(
+                                .derivedShapePreview,
+                                phase: self.optionalWorkPhase,
+                                health: derivedHealth,
+                                sessionTimestampSeconds:
+                                    spatialSample
+                                        .sessionTimestampSeconds
+                            ).isAllowed
 
                         if derivedWorkAllowed,
                            (
@@ -14107,6 +14299,150 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return (nil, diagnostic)
     }
 
+    // MARK: - Optional-work admission (#273)
+
+    /// The capture phase the admission policy sees: the targeted
+    /// object pass turns `.scanning` into `.targetOrMeasurement` for
+    /// the duration of the explicit measurement task.
+    private var optionalWorkPhase: OptionalWorkPhase {
+        OptionalWorkPhase(
+            state: state,
+            measurementTaskActive: targetScanTracker != nil
+        )
+    }
+
+    /// Point-in-time `captureHealth` for admission decisions — every
+    /// field maps to a signal an existing authority already measures
+    /// (#273 Inputs; no invented counters). The snapshot is async only
+    /// because the persistence-backlog signal lives inside the working
+    /// set actor.
+    private func captureHealthSnapshot(
+        thermalState: ProcessInfo.ThermalState =
+            ProcessInfo.processInfo.thermalState
+    ) async -> CaptureHealthSnapshot {
+        let backlogActive: Bool
+        if let store = workingSetStore {
+            backlogActive =
+                await store.persistenceBacklogPressureActive
+        } else {
+            backlogActive = false
+        }
+        let scanning = state == .scanning
+        return CaptureHealthSnapshot(
+            thermalState: thermalState,
+            storageBand: resourceMonitor?.storagePressureState
+                ?? .healthy,
+            memoryPressureActive:
+                derivedPreviewSuspendedForMemoryPressure,
+            interruptionActive: arSessionInterrupted,
+            persistenceBacklogActive: backlogActive,
+            renderingMitigationActive: !roomPlanModelRenderingEnabled,
+            latestTrackingState: scanning
+                ? spatialCoverage.latestTrackingState
+                : nil,
+            // Scene depth is "absent" only when the device supports it
+            // and the latest sample reported none — unsupported
+            // hardware is never counted as missing evidence.
+            sceneDepthRecentlyAbsent: scanning
+                && capabilities.sceneDepthSupported
+                ? !spatialCoverage.latestHasSceneDepth
+                : nil
+        )
+    }
+
+    /// Surfaces an explicit-request denial (#273 "clear UI if an
+    /// explicit operator request is deferred/rejected"): the status
+    /// line tells the operator why, and an advisory note carries the
+    /// machine-stable provenance into the finalized bundle.
+    private func admitOptionalWorkDenial(
+        workload: OptionalWorkload,
+        decision: OptionalWorkAdmissionDecision,
+        phase: OptionalWorkPhase
+    ) {
+        switch decision {
+        case .defer:
+            workingSetStatus = String(
+                localized:
+                    "Request deferred — the device is under load or capture is busy; try again when conditions ease"
+            )
+        case .reject:
+            workingSetStatus = String(
+                localized:
+                    "Request declined — this work cannot run during the current capture step"
+            )
+        case .allow:
+            return
+        }
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .optionalWorkAdmission,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail:
+                    "workload=\(workload.identifier)"
+                    + " outcome=\(decision.logToken)"
+                    + " phase=\(phase.rawValue)"
+                    + " reason=\(decision.denialReason?.rawValue ?? "none")"
+            )
+        )
+    }
+
+    /// Re-derives the pressure band from the existing authorities and
+    /// applies the in-flight action it implies for every registered
+    /// optional workload (#273 pressure policy). Called on each
+    /// resource/lifecycle event so a transition — not a periodic
+    /// poll — sheds or reinstates optional work.
+    private func applyOptionalWorkPressureActions() async {
+        let health = await captureHealthSnapshot()
+        let pressure = health.pressureState
+        for action in optionalWorkTracker
+            .inflightActions(health: health)
+        {
+            switch action.action {
+            case .suspend:
+                optionalWorkTracker.suspend(
+                    action.ticket,
+                    pressure: pressure,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+            case .cancel:
+                _ = optionalWorkTracker.cancel(
+                    action.ticket,
+                    pressure: pressure,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+                applyOptionalWorkCancellation(action.ticket)
+            case .continueWork:
+                optionalWorkTracker.resume(
+                    action.ticket,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+            }
+        }
+    }
+
+    /// Feature-owned cancellation for pressure-cancelled in-flight
+    /// work. Each bounded feature that registers tickets adds its
+    /// cancel hook here (#273 request safety — cancellation where the
+    /// API allows).
+    private func applyOptionalWorkCancellation(
+        _ ticket: OptionalWorkAdmissionTicket
+    ) {
+        switch ticket.workloadIdentifier {
+        case OptionalWorkload.targetedObjectPass.identifier:
+            cancelTargetScan()
+            workingSetStatus = String(
+                localized:
+                    "Object pass ended early — device pressure rose during the measurement"
+            )
+        default:
+            break
+        }
+    }
+
     private func configureResourceMonitor(
         store: CaptureWorkingSetStore,
         rootDirectory: URL,
@@ -14233,6 +14569,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            // #273: every resource/lifecycle event re-derives the
+            // pressure band and applies it to in-flight optional work.
+            await self.applyOptionalWorkPressureActions()
+
             if self.state == .reviewing {
                 await self.refreshQuality(
                     store: store,
@@ -14288,6 +14628,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // transition recording captures the observable degradation,
             // and a genuine coordinate-space reset is registered by the
             // platform layer when continuity is demonstrably lost.
+            arSessionInterrupted = true
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,
@@ -14300,6 +14641,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
         case .interruptionEnded:
+            arSessionInterrupted = false
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,
@@ -14312,6 +14654,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
         case .failed(let reason):
+            arSessionInterrupted = false
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,

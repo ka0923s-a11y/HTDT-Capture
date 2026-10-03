@@ -333,6 +333,14 @@ public final class CaptureResourceMonitor: NSObject {
     /// `occurred_at_utc`/`sequence` fields (#190).
     public private(set) var eventLog: [CaptureResourceMonitorLogEntry] = []
 
+    /// The storage band the pressure tracker currently reports — the same
+    /// signal that emits `storagePressure` events. Read-only exposure so
+    /// the optional-work admission policy (#273) consumes this authority's
+    /// band instead of re-deriving storage pressure.
+    public var storagePressureState: CaptureStoragePressureTracker.State {
+        storageTracker.state
+    }
+
     public init(
         rootDirectory: URL,
         policy: CaptureResourceMonitorPolicy = .init(),
