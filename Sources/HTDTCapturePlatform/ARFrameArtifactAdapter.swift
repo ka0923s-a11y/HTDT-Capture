@@ -61,6 +61,12 @@ public struct CapturedFrameSnapshot: @unchecked Sendable {
     public let discreteDepthData: ARDepthData?
     public let smoothedDepthData: ARDepthData?
     public let depthSelection: FrameDepthSelection
+    /// Bounded non-EXIF provenance merged into the descriptor's
+    /// `exif_allowlisted` map (legacy bolph71656-ai/HTDT-Capture#275): the per-frame string map is the
+    /// schema-safe, integrity-covered channel for source/profile
+    /// provenance (high-res source, purpose, visual profile) without a
+    /// descriptor schema change. Entries are `HTDT.*` keys only.
+    public let provenanceExtras: [String: String]
 
     public init(
         frameID: EvidenceFrameID,
@@ -73,7 +79,8 @@ public struct CapturedFrameSnapshot: @unchecked Sendable {
         capturedImage: CVPixelBuffer,
         discreteDepthData: ARDepthData?,
         smoothedDepthData: ARDepthData?,
-        depthSelection: FrameDepthSelection
+        depthSelection: FrameDepthSelection,
+        provenanceExtras: [String: String] = [:]
     ) {
         self.frameID = frameID
         self.captureSessionID = captureSessionID
@@ -86,6 +93,7 @@ public struct CapturedFrameSnapshot: @unchecked Sendable {
         self.discreteDepthData = discreteDepthData
         self.smoothedDepthData = smoothedDepthData
         self.depthSelection = depthSelection
+        self.provenanceExtras = provenanceExtras
     }
 }
 
@@ -97,7 +105,8 @@ public enum ARFrameArtifactAdapter {
         frame: ARFrame,
         captureSessionID: CaptureSessionID,
         coordinateSpaceID: CoordinateSpaceID,
-        depthSelection: FrameDepthSelection = .discrete
+        depthSelection: FrameDepthSelection = .discrete,
+        provenanceExtras: [String: String] = [:]
     ) throws -> CapturedFrameSnapshot {
         try CapturedFrameSnapshot(
             frameID: EvidenceFrameID(),
@@ -112,7 +121,8 @@ public enum ARFrameArtifactAdapter {
             capturedImage: frame.capturedImage,
             discreteDepthData: frame.sceneDepth,
             smoothedDepthData: frame.smoothedSceneDepth,
-            depthSelection: depthSelection
+            depthSelection: depthSelection,
+            provenanceExtras: provenanceExtras
         )
     }
 
@@ -172,7 +182,9 @@ public enum ARFrameArtifactAdapter {
             pixelRelativePath: pixelPath,
             pixelByteCount: pixelPayload.count,
             pixelSHA256: pixelSHA256,
-            exifAllowlisted: snapshot.exifAllowlisted,
+            exifAllowlisted: snapshot.exifAllowlisted.merging(
+                snapshot.provenanceExtras
+            ) { _, new in new },
             depthStatus: depthResult.status,
             depth: depthResult.reference
         )

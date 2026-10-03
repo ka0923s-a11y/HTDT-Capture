@@ -58,6 +58,9 @@ public enum CaptureAdvisoryNoteKind:
     /// The bounded camera-source preflight ran (issue bolph71656-ai/HTDT-Capture#277): records
     /// the stable-frame/smudge outcome and the operator's action.
     case sourceQualityPreflight = "source_quality_preflight"
+    /// A bounded one-shot high-resolution evidence still was requested
+    /// (issue bolph71656-ai/HTDT-Capture#275): records purpose, visual profile, and outcome.
+    case highResolutionStill = "high_resolution_still"
     /// The operator's per-mission reference-object selection was
     /// resolved and applied to the ARSession (legacy bolph71656-ai/HTDT-Capture#268) — records selected
     /// counts plus any dropped requests verbatim.
@@ -160,6 +163,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
             severity = .warning
         case .sourceQualityPreflight:
             code = "source_quality_preflight"
+            severity = .info
+        case .highResolutionStill:
+            code = "high_resolution_still"
             severity = .info
         case .referenceObjectSelection:
             code = "reference_object_selection"

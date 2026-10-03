@@ -105,7 +105,8 @@ public enum CaptureWorkflow: String, Sendable, CaseIterable {
 public enum CaptureWorkflowActionMap {
     public static let spatialCapture: Set<String> = [
         "beginCapture", "beginScanning", "cancelCaptureSetup",
-        "beginReview", "captureEvidenceFrame", "beginTargetScan",
+        "beginReview", "captureEvidenceFrame",
+        "captureHighResolutionEvidence", "beginTargetScan",
         "retakeTargetScan", "acceptTargetScan", "cancelTargetScan",
         "segmentationGesture", "useSegmentation", "cancelSegmentation",
         "segmentationAssetPrepare",
