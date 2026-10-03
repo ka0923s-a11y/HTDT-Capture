@@ -3161,6 +3161,67 @@ public actor CaptureWorkingSetStore {
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
+    /// Appends one entity to the committed annotation collection
+    /// through the same validated package path the editor uses
+    /// (derived-candidate promotion, legacy bolph71656-ai/HTDT-Capture#249). Building inside
+    /// the actor makes the appended package see every committed
+    /// mutation — an app-side file snapshot could interleave with an
+    /// editor commit and silently drop entities.
+    /// Returns `false` when the committed collection already carries
+    /// an entity citing every evidence ref this entity carries — the
+    /// idempotent answer for a re-delivered promotion.
+    @discardableResult
+    public func appendCommittedAnnotationEntity(
+        _ entity: CaptureAnnotationEntity
+    ) async throws -> Bool {
+        let entities = annotationCollection?.entities ?? []
+        let entityRefs = Set(entity.evidenceRefs)
+        if !entityRefs.isEmpty,
+           entities.contains(where: {
+               entityRefs.isSubset(of: Set($0.evidenceRefs))
+           })
+        {
+            return false
+        }
+        let annotationPackage = try AnnotationEvidencePackageBuilder
+            .build(
+                entities: entities + [entity],
+                relations: annotationCollection?.relations ?? [],
+                priorEntities: annotationCollection?.entities
+            )
+        let measurementPackage = try MeasurementEvidencePackageBuilder
+            .build(
+                measurements: measurementCollection?.measurements ?? []
+            )
+        if annotationCollection == nil {
+            try await persistAnnotationAndMeasurementPackages(
+                annotationPackage: annotationPackage,
+                measurementPackage: measurementPackage
+            )
+        } else {
+            try await replaceAnnotationAndMeasurementPackages(
+                annotationPackage: annotationPackage,
+                measurementPackage: measurementPackage
+            )
+        }
+        return true
+    }
+
+    /// The committed annotation entities as last published — the same
+    /// authoritative prior `replaceAnnotationAndMeasurementPackages`
+    /// snapshots.
+    public var committedAnnotationEntities: [CaptureAnnotationEntity] {
+        annotationCollection?.entities ?? []
+    }
+
+    /// Committed supplemental-document bytes for a declared path —
+    /// nil when undeclared. Reads the published commit bytes, never
+    /// the directory, so an in-flight write can't deliver a torn
+    /// snapshot.
+    public func supplementalDocumentData(path: String) -> Data? {
+        supplementalDocuments[path]
+    }
+
     /// Persists the derived equipment-identity document (issue bolph71656-ai/HTDT-Capture#239).
     /// `derived/equipment-identity.json` is a derived-role payload: the
     /// operator may re-record identity evidence before finalization, so
