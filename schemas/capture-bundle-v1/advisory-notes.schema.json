@@ -53,7 +53,8 @@
               "optional_work_admission",
               "reference_object_selection",
               "reference_object_configuration_outcome",
-              "reference_object_acceptance"
+              "reference_object_acceptance",
+              "source_quality_preflight"
             ]
           },
           "session_timestamp_seconds": {

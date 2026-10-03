@@ -106,6 +106,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.automaticEvidenceFrameCount,
             lowLightGuidanceActive:
                 coordinator.lowLightGuidanceActive,
+            sourceQualityAdvisory:
+                coordinator.sourceQualityAdvisory,
             targetScanStatus: coordinator.targetScanStatus,
             segmentationInteraction:
                 coordinator.segmentationInteraction,
@@ -277,6 +279,10 @@ private struct HTDTCaptureHostView: View {
                     coordinator.updateRevisitFlagDetails,
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
+                recheckSourceQuality:
+                    coordinator.recheckSourceQualityPreflight,
+                dismissSourceQualityAdvisory:
+                    coordinator.dismissSourceQualityAdvisory,
                 requestScanCopilotSuggestion:
                     coordinator.requestScanCopilotSuggestion,
                 markTaskPlanItem:
@@ -642,6 +648,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// copy instead of generic tracking text (#283).
     @Published private(set)
     var lowLightGuidanceActive = false
+    /// #277: the bounded camera-source preflight advisory — at most
+    /// one source-quality card, advisory only, never gates capture.
+    @Published private(set)
+    var sourceQualityAdvisory: CameraSourceAdvisory?
+    private var sourcePreflightTask: Task<Void, Never>?
+    private let cameraSourcePreflightPolicy =
+        CameraSourcePreflightPolicy()
     /// Live status of the operator-targeted object orbit pass, if one
     /// is active (#250).
     @Published private(set)
@@ -1798,6 +1811,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         semanticCorrectionParent = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = nil
+        sourceQualityAdvisory = nil
         // #273: a fresh capture drops every optional-work
         // registration; the new generation already invalidates
         // outstanding results through the existing fence.
@@ -4217,6 +4233,132 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task {
             try? await store.recordAdvisoryNote(note)
         }
+    }
+
+    /// #277: schedule the bounded camera-source preflight — acquire
+    /// ONE stable ordinary camera frame while tracking is normal, run
+    /// Vision's DetectLensSmudgeRequest off the AR callback path, then
+    /// surface at most one advisory card. Advisory only: it never
+    /// blocks End/finalization, never invalidates geometry, and the
+    /// Continue path always exists. It runs once per scan start and
+    /// again only on the operator's explicit Recheck.
+    private func scheduleSourceQualityPreflight(generation: UUID) {
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = Task { [weak self] in
+            await self?.runSourceQualityPreflight(
+                generation: generation
+            )
+        }
+    }
+
+    private func runSourceQualityPreflight(
+        generation: UUID
+    ) async {
+        #if os(iOS) && canImport(Vision)
+        // Skips rather than blocks: no stable sample within the
+        // bounded wait means no check and no advisory.
+        guard let sample = await CameraSourcePreflight
+            .acquireStableFrameSample(
+                session: sessionController.arSession,
+                policy: cameraSourcePreflightPolicy
+            )
+        else {
+            return
+        }
+        // Off the AR delegate queue on a utility task; the sampled
+        // pixel buffer is retained only for this bounded analysis.
+        let confidence = await CameraSourcePreflight.smudgeConfidence(
+            of: sample.pixelBuffer
+        )
+        guard !Task.isCancelled,
+              state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+        let outcome = CameraSourcePreflightOutcome(
+            stableFrameAcquired: true,
+            smudgeConfidence: confidence,
+            ambientIntensityLumens: sample.ambientIntensityLumens,
+            sampledTimestampSeconds: sample.timestampSeconds,
+            visionRequestRevision: "detect_lens_smudge_request"
+        )
+        sourceQualityAdvisory = CameraSourcePreflightAssessment.assess(
+            outcome: outcome,
+            policy: cameraSourcePreflightPolicy
+        )
+        recordSourceQualityPreflightNote(
+            outcome: outcome,
+            operatorAction: nil
+        )
+        #endif
+    }
+
+    /// Operator "Recheck" on the source-quality card: re-runs the same
+    /// bounded preflight once; the fresh outcome replaces the card.
+    func recheckSourceQualityPreflight() {
+        guard state == .scanning else {
+            return
+        }
+        sourceQualityAdvisory = nil
+        recordSourceQualityPreflightNote(
+            outcome: nil,
+            operatorAction: "recheck"
+        )
+        scheduleSourceQualityPreflight(
+            generation: captureGeneration
+        )
+    }
+
+    /// Operator "Continue anyway": dismisses the card; the choice is
+    /// recorded and capture is never gated by the advisory.
+    func dismissSourceQualityAdvisory() {
+        guard sourceQualityAdvisory != nil else {
+            return
+        }
+        sourceQualityAdvisory = nil
+        recordSourceQualityPreflightNote(
+            outcome: nil,
+            operatorAction: "continue_anyway"
+        )
+    }
+
+    /// Bounded diagnostics for the preflight: policy revision plus the
+    /// honest outcome fields — never raw frames or new room imagery.
+    private func recordSourceQualityPreflightNote(
+        outcome: CameraSourcePreflightOutcome?,
+        operatorAction: String?
+    ) {
+        var parts = [
+            "policy_rev=\(cameraSourcePreflightPolicy.policyRevision)"
+        ]
+        if let outcome {
+            parts.append(
+                "stable_frame=\(outcome.stableFrameAcquired ? 1 : 0)"
+            )
+            parts.append(
+                outcome.smudgeConfidence.map {
+                    String(format: "smudge_confidence=%.3f", $0)
+                } ?? "smudge_confidence=unavailable"
+            )
+            if let lumens = outcome.ambientIntensityLumens {
+                parts.append(
+                    String(format: "ambient_lumens=%.1f", lumens)
+                )
+            }
+        }
+        if let operatorAction {
+            parts.append("operator_action=\(operatorAction)")
+        }
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .sourceQualityPreflight,
+                sessionTimestampSeconds:
+                    outcome?.sampledTimestampSeconds
+                        ?? latestScanTimestampSeconds ?? 0,
+                detail: parts.joined(separator: " ")
+            )
+        )
     }
 
     func beginReview() {
@@ -6686,6 +6828,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         automaticFrameSaveTask = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = nil
+        sourceQualityAdvisory = nil
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
@@ -6933,6 +7078,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         revisitFlags = []
         clearScanCopilot()
         scanLightingStatus = .unknown
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = nil
+        sourceQualityAdvisory = nil
         automaticEvidenceFrameCount = 0
         automaticKeyframePersistedBytes = 0
         automaticKeyframeTracker = AutomaticKeyframeTracker()
@@ -13007,6 +13155,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.trackingUnavailable)
             return
         }
+
+        // #277: bounded camera-source preflight — one stable frame,
+        // Vision smudge check off the AR callback path, advisory only.
+        // Scheduled after frames flow so it never delays capture start;
+        // it skips itself when no stable sample arrives promptly.
+        scheduleSourceQualityPreflight(generation: generation)
 
         guard state == .scanning,
               captureGeneration == generation

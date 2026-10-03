@@ -55,6 +55,9 @@ public enum CaptureAdvisoryNoteKind:
     /// End transaction — so the room model stopped accumulating while
     /// the operator still sees a scanning surface.
     case roomPlanSessionEnded = "roomplan_session_ended"
+    /// The bounded camera-source preflight ran (issue #277): records
+    /// the stable-frame/smudge outcome and the operator's action.
+    case sourceQualityPreflight = "source_quality_preflight"
     /// The operator's per-mission reference-object selection was
     /// resolved and applied to the ARSession (#268) — records selected
     /// counts plus any dropped requests verbatim.
@@ -155,6 +158,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .roomPlanSessionEnded:
             code = "roomplan_session_ended"
             severity = .warning
+        case .sourceQualityPreflight:
+            code = "source_quality_preflight"
+            severity = .info
         case .referenceObjectSelection:
             code = "reference_object_selection"
             severity = .info

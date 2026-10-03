@@ -3718,6 +3718,10 @@
 "%lld unresolved repair tasks" = "未解決の修復タスク %lld 件";
 "Capture cancelled" = "キャプチャをキャンセルしました";
 "Stops the capture and permanently removes the working revision. Finalized captures are never touched." = "キャプチャを停止し、作業中のリビジョンを完全に削除します。確定済みのキャプチャは対象外です。";
+"The camera lens may be smudged — wipe it gently, then tap Recheck." = "カメラレンズが汚れている可能性があります。やさしく拭いてから「再チェック」をタップしてください。";
+"The scene looks dark to the camera; brighter, even lighting improves photo evidence quality." = "カメラからはシーンが暗く見えています。明るく均一な照明にすると写真エビデンスの品質が向上します。";
+"Recheck" = "再チェック";
+"Continue anyway" = "このまま続行";
 "Use lowercase letters, digits and underscores." = "小文字の英字・数字・アンダースコアのみ使用できます。";
 "Guidance finished: %lld weak area was marked intentionally unresolved. It remains reviewable in spatial coverage." = "ガイダンス完了: 弱い領域%lld箇所が意図的に未解決のままマークされています。空間カバレッジで確認できます。";
 "Guidance finished: %lld weak areas were marked intentionally unresolved. They remain reviewable in spatial coverage." = "ガイダンス完了: 弱い領域%lld箇所が意図的に未解決のままマークされています。空間カバレッジで確認できます。";
