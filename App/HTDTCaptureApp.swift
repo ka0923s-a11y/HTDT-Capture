@@ -17632,22 +17632,40 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 $0.resolution != .resolved
             }
             + targetedObjectProxies
-        guard !objectProxies.isEmpty
-                || derivedShapePreview.wallChain != nil
-        else {
-            // A re-End with no fitted candidates must not strand the
-            // previous run's document — it would report items this
-            // revision no longer carries.
-            if await store.snapshot().payloadDeclarations
-                .contains(where: {
-                    $0.path == DerivedGeometryCandidatePackage.path
-                })
-            {
-                try? await store.removeSupplementalDocument(
-                    path: DerivedGeometryCandidatePackage.path
-                )
+
+        // Candidates already promoted into committed entities must
+        // stay resolvable across a re-End — derivation assigns fresh
+        // ids each pass, so the entity's `derived_candidate:` link
+        // would dangle (and wedge every later annotation commit)
+        // unless the cited record is carried over verbatim.
+        let citedCandidateIDs = Set(
+            (await store.committedAnnotationEntities)
+                .flatMap(\.evidenceRefs)
+                .compactMap { ref -> DerivedGeometryCandidateID? in
+                    guard ref.hasPrefix("derived_candidate:")
+                    else { return nil }
+                    return DerivedGeometryCandidateID(
+                        canonicalString: String(
+                            ref.dropFirst(
+                                "derived_candidate:".count
+                            )
+                        )
+                    )
+                }
+        )
+        var preservedCandidates: [DerivedGeometryCandidateRecord] = []
+        if !citedCandidateIDs.isEmpty,
+           let priorData = await store.supplementalDocumentData(
+               path: DerivedGeometryCandidatePackage.path
+           ),
+           let priorDocument = try? JSONDecoder().decode(
+               DerivedGeometryCandidateDocument.self,
+               from: priorData
+           )
+        {
+            preservedCandidates = priorDocument.candidates.filter {
+                citedCandidateIDs.contains($0.candidateID)
             }
-            return
         }
 
         let snapshot = await store.snapshot()
@@ -17667,11 +17685,46 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         }
+        guard !objectProxies.isEmpty
+                || derivedShapePreview.wallChain != nil
+                || !preservedCandidates.isEmpty
+        else {
+            // A re-End with no fitted candidates must not strand the
+            // previous run's document — it would report items this
+            // revision no longer carries. Records a committed entity
+            // still cites are exempt: dropping them orphans the link.
+            // (preservedCandidates is empty here by construction.)
+            if snapshot.payloadDeclarations
+                .contains(where: {
+                    $0.path == DerivedGeometryCandidatePackage.path
+                })
+            {
+                try? await store.removeSupplementalDocument(
+                    path: DerivedGeometryCandidatePackage.path
+                )
+            }
+            return
+        }
         guard !sourceRefs.isEmpty else {
             // `.derived` declarations need resolvable sources — without
             // mesh/depth payloads no honest source set exists. A doc
-            // persisted by an earlier End is now un-manifestable too:
-            // drop it rather than strand a dangling ref.
+            // persisted by an earlier End is kept when entities still
+            // cite its records — removing it orphans their links, and
+            // its last valid declaration is less harmful than a
+            // dangling `derived_candidate:` ref.
+            if !preservedCandidates.isEmpty {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Derived geometry candidates kept: "
+                            + "\(preservedCandidates.count) record(s) still cited by committed entities; "
+                            + "no mesh/depth payloads to re-declare sources."
+                    )
+                )
+                return
+            }
             if snapshot.payloadDeclarations.contains(where: {
                 $0.path == DerivedGeometryCandidatePackage.path
             }) {
@@ -17695,41 +17748,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // working-set directory.
         guard self.captureGeneration == generation else {
             return
-        }
-
-        // Candidates already promoted into committed entities must
-        // stay resolvable across a re-End — derivation assigns fresh
-        // ids each pass, so the entity's `derived_candidate:` link
-        // would dangle (and wedge every later annotation commit)
-        // unless the cited record is carried over verbatim.
-        var preservedCandidates: [DerivedGeometryCandidateRecord] = []
-        let citedCandidateIDs = Set(
-            (await store.committedAnnotationEntities)
-                .flatMap(\.evidenceRefs)
-                .compactMap { ref -> DerivedGeometryCandidateID? in
-                    guard ref.hasPrefix("derived_candidate:")
-                    else { return nil }
-                    return DerivedGeometryCandidateID(
-                        canonicalString: String(
-                            ref.dropFirst(
-                                "derived_candidate:".count
-                            )
-                        )
-                    )
-                }
-        )
-        if !citedCandidateIDs.isEmpty,
-           let priorData = await store.supplementalDocumentData(
-               path: DerivedGeometryCandidatePackage.path
-           ),
-           let priorDocument = try? JSONDecoder().decode(
-               DerivedGeometryCandidateDocument.self,
-               from: priorData
-           )
-        {
-            preservedCandidates = priorDocument.candidates.filter {
-                citedCandidateIDs.contains($0.candidateID)
-            }
         }
 
         do {
