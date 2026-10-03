@@ -19,7 +19,6 @@ import RoomPlan
 /// host's `roomPlanCompletionInFlight` guard, so off-actor work cannot
 /// queue unboundedly (#147 backpressure contract). Canonical bytes and
 /// lineage are identical to the previous synchronous MainActor output.
-@available(iOS 17.0, *)
 public enum RoomPlanArtifactProcessor {
     /// Encodes the raw `CapturedRoomData` payload and builds its
     /// evidence descriptor (byte count + SHA-256) off the calling actor.

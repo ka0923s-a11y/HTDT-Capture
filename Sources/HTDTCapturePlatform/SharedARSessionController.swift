@@ -232,7 +232,6 @@ public enum ARSessionLifecycleEvent: Sendable, Equatable {
     case didOutputCollaborationData(priorityIsCritical: Bool)
 }
 
-@available(iOS 17.0, *)
 @MainActor
 private final class ARSessionLifecycleBridge:
     NSObject,
@@ -383,7 +382,6 @@ private final class ARSessionLifecycleBridge:
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 @objc(HTDTRoomPlanViewDelegateBridge)
 private final class RoomPlanViewDelegateBridge:
@@ -423,7 +421,6 @@ private final class RoomPlanViewDelegateBridge:
 // requirements (unlike the ObjC ARSessionDelegate/RoomCaptureViewDelegate
 // bridges above), so the bridge cannot be MainActor-isolated. The
 // handler is assigned once before `run` and only read afterwards.
-@available(iOS 17.0, *)
 private final class RoomPlanSessionInstructionBridge:
     RoomCaptureSessionDelegate,
     @unchecked Sendable
@@ -492,7 +489,6 @@ private final class RoomPlanSessionInstructionBridge:
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 public final class SharedARSessionController {
     public let arSession: ARSession
@@ -2647,7 +2643,6 @@ private struct LiveDerivedVoxelKey: Hashable {
 /// live ARMesh triangle, or a persisted RoomPlan object — so the
 /// reticle can name the target class before capture; the capture
 /// then resolves the same candidates and returns bounded provenance.
-@available(iOS 17.0, *)
 extension SharedARSessionController {
     /// Bounded capture result for a targeted placement. `target` names
     /// the resolved target class; the method-specific fields are

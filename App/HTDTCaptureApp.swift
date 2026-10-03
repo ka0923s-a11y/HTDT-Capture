@@ -6129,7 +6129,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
             #if os(iOS) && canImport(RoomPlan)
-            if #available(iOS 17.0, *) {
+            do {
                 let processedURL = snapshot.rootDirectory
                     .appendingPathComponent(
                         "roomplan/captured-room.json",
@@ -6378,12 +6378,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         if let data = try? Data(contentsOf: processedURL) {
             #if os(iOS) && canImport(RoomPlan)
-            if #available(iOS 17.0, *) {
-                floorY = RoomPlanReviewDeriver
-                    .finishedFloorElevationMeters(
-                        processedPayload: data
-                    )
-            }
+            floorY = RoomPlanReviewDeriver
+                .finishedFloorElevationMeters(
+                    processedPayload: data
+                )
             #endif
         }
         guard let zeroElevation = floorY else {
@@ -6543,10 +6541,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         var enumerated: [RoomOpeningCandidate] = []
         #if os(iOS) && canImport(RoomPlan)
-        if #available(iOS 17.0, *) {
-            enumerated = (try? RoomPlanReviewDeriver
-                .enumerateOpenings(processedPayload: data)) ?? []
-        }
+        enumerated = (try? RoomPlanReviewDeriver
+            .enumerateOpenings(processedPayload: data)) ?? []
         #endif
         let existing = snapshot.openingReview?.openings ?? []
         return OpeningReviewEditor.merge(
@@ -7006,31 +7002,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 case .roomPlanProcessed:
                     if selection.format == .usdz {
                         #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
-                        if #available(iOS 17.0, *) {
-                            result =
-                                try DerivedExportRunner.exportUSDZ(
-                                    bundleDirectory:
-                                        context.directory,
-                                    bundleDigest:
-                                        context.bundleDigest,
-                                    captureRoot: captureRoot
-                                ) { destination in
-                                    try DerivedRoomPlanExportSupport
-                                        .writeUSDZ(
-                                            bundleDirectory:
-                                                context.directory,
-                                            manifest:
-                                                context.manifest,
-                                            to: destination
-                                        )
-                                }
-                        } else {
-                            throw DerivedExportError
-                                .unsupportedCombination(
-                                    reason:
-                                        "USDZ export requires iOS 17 RoomPlan"
-                                )
-                        }
+                        result =
+                            try DerivedExportRunner.exportUSDZ(
+                                bundleDirectory:
+                                    context.directory,
+                                bundleDigest:
+                                    context.bundleDigest,
+                                captureRoot: captureRoot
+                            ) { destination in
+                                try DerivedRoomPlanExportSupport
+                                    .writeUSDZ(
+                                        bundleDirectory:
+                                            context.directory,
+                                        manifest:
+                                            context.manifest,
+                                        to: destination
+                                    )
+                            }
                         #else
                         throw DerivedExportError
                             .unsupportedCombination(
@@ -7040,32 +7028,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         #endif
                     } else {
                         #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
-                        if #available(iOS 17.0, *) {
-                            let objects =
-                                try DerivedRoomPlanExportSupport
-                                    .bindableObjects(
-                                        bundleDirectory:
-                                            context.directory,
-                                        manifest: context.manifest
-                                    )
-                            result =
-                                try DerivedExportRunner.exportMesh(
+                        let objects =
+                            try DerivedRoomPlanExportSupport
+                                .bindableObjects(
                                     bundleDirectory:
                                         context.directory,
-                                    bundleDigest:
-                                        context.bundleDigest,
-                                    captureRoot: captureRoot,
-                                    format: selection.format,
-                                    source: .roomPlanProcessed,
-                                    roomPlanObjects: objects
+                                    manifest: context.manifest
                                 )
-                        } else {
-                            throw DerivedExportError
-                                .unsupportedCombination(
-                                    reason:
-                                        "RoomPlan-derived exports require iOS 17 RoomPlan"
-                                )
-                        }
+                        result =
+                            try DerivedExportRunner.exportMesh(
+                                bundleDirectory:
+                                    context.directory,
+                                bundleDigest:
+                                    context.bundleDigest,
+                                captureRoot: captureRoot,
+                                format: selection.format,
+                                source: .roomPlanProcessed,
+                                roomPlanObjects: objects
+                            )
                         #else
                         throw DerivedExportError
                             .unsupportedCombination(
@@ -7117,16 +7097,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         ) { () -> DerivedExportOutcome in
             var plan: RoomPlanPreviewModel? = nil
             #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
-            if #available(iOS 17.0, *) {
-                if let data = try? DerivedRoomPlanExportSupport
-                    .processedRoomData(
-                        bundleDirectory: context.directory,
-                        manifest: context.manifest
-                    )
-                {
-                    plan = try? RoomPlanReviewDeriver
-                        .planPreview(processedPayload: data)
-                }
+            if let data = try? DerivedRoomPlanExportSupport
+                .processedRoomData(
+                    bundleDirectory: context.directory,
+                    manifest: context.manifest
+                )
+            {
+                plan = try? RoomPlanReviewDeriver
+                    .planPreview(processedPayload: data)
             }
             #endif
 

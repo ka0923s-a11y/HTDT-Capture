@@ -12,7 +12,6 @@ public enum PixelBufferSnapshotAdapterError: Error {
     case invalidSourceStride(plane: Int, source: Int, packed: Int)
 }
 
-@available(iOS 17.0, *)
 public enum PixelBufferSnapshotAdapter {
     public static func snapshot(
         _ pixelBuffer: CVPixelBuffer
