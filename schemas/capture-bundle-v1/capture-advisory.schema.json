@@ -142,7 +142,57 @@
           "type": "integer",
           "minimum": 0
         },
-        "guidance_complete": { "type": "boolean" }
+        "guidance_complete": { "type": "boolean" },
+        "viewpoint_diversity_semantics": { "type": "string" },
+        "vertical_cell_size_meters": { "type": "number", "minimum": 0 },
+        "vertical_voxel_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "vertical_observed_voxel_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "vertical_weak_voxel_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "vertical_weak_voxel_keys": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "vertical_band_summaries": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["voxel_count", "observed_count", "weak_count"],
+            "properties": {
+              "voxel_count": { "type": "integer", "minimum": 0 },
+              "observed_count": { "type": "integer", "minimum": 0 },
+              "weak_count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "guidance_completion_source": { "type": "string" },
+        "remote_weak_region_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_max_region_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_peak_region_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_region_eviction_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_capacity_saturated": { "type": "boolean" },
+        "direction_reference": { "type": "string" }
       }
     },
     "task_completeness": {
