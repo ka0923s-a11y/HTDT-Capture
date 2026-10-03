@@ -1033,6 +1033,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var activeCaptureIsPractice = false
     private static let practicePromptDismissedDefaultsKey =
         "practice_prompt_dismissed"
+    /// Experimental equipment-identity AI assist (#270): UserDefaults
+    /// flag, absent/false = off. Evaluation-gated — no measured benefit
+    /// over the deterministic lane means it never ships on by default.
+    /// Even when on it can never change the deterministic result; it
+    /// only attaches an advisory outcome to the scan result.
+    private static let equipmentIdentityAIAssistDefaultsKey =
+        "equipment_identity_ai_assist_enabled"
+    private var equipmentIdentityAIAssistEnabled: Bool {
+        UserDefaults.standard.bool(
+            forKey: Self.equipmentIdentityAIAssistDefaultsKey
+        )
+    }
     /// Explicit commit-point policy for the finalization transaction
     /// (#185). While claimed, terminal lifecycle/resource failures are
     /// fenced instead of invalidating the capture generation; a fenced
@@ -5830,6 +5842,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             from: observations,
             catalog: equipmentCatalog?.definitions ?? []
         )
+
+        // #270: optional advisory lane — a bounded, task-scoped
+        // Foundation Models suggestion layered ON TOP of the unchanged
+        // deterministic result. Off by default (UserDefaults flag) and
+        // zero-impact when unavailable: Simulator/ineligible devices,
+        // unsupported locales, context overflow, and validator
+        // rejection all produce a typed status, never a changed
+        // deterministic result. Raw OCR/barcode observations stay raw
+        // evidence; a model suggestion can rank/explain but can never
+        // overwrite them or bypass operator confirmation.
+        var aiAdvisory: EquipmentIdentityAIResult?
+        if equipmentIdentityAIAssistEnabled {
+            if #available(iOS 26.0, *) {
+                aiAdvisory = await EquipmentIdentityAIAdvisor.suggest(
+                    result: EquipmentLabelScanResult(
+                        algorithm: EquipmentLabelScanMatcher.algorithm,
+                        algorithmVersion:
+                            EquipmentLabelScanMatcher.algorithmVersion,
+                        evidenceRef: evidenceRef,
+                        candidates: candidates,
+                        rawObservations:
+                            EquipmentLabelScanMatcher.rawStrings(
+                                from: observations
+                            )
+                    ),
+                    catalog: equipmentCatalog?.definitions ?? [],
+                    catalogContentSHA256: equipmentCatalog?
+                        .contentSHA256.description
+                )
+            }
+        }
+
         workingSetStatus = String(localized: "Label scanned — review the suggestions")
         return EquipmentLabelScanResult(
             algorithm: EquipmentLabelScanMatcher.algorithm,
@@ -5840,7 +5884,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             rawObservations:
                 EquipmentLabelScanMatcher.rawStrings(
                     from: observations
-                )
+                ),
+            aiAdvisory: aiAdvisory
         )
     }
 
